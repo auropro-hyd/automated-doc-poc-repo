@@ -1,0 +1,20 @@
+/* General scaling of all Mermaid diagrams */
+.mermaid {
+  display: flex;
+  justify-content: center;   /* center the diagram */
+  margin: 1em auto;
+  max-width: 100%;           /* keep it responsive */
+  overflow-x: auto;          /* scroll if diagram too wide */
+}
+
+.mermaid svg {
+  width: 100%;               /* scale to container width */
+  height: auto;              /* keep aspect ratio */
+  max-width: 900px;          /* cap the maximum size */
+}
+
+/* Optional: allow zooming on hover */
+.mermaid svg:hover {
+  transform: scale(1.05);
+  transition: transform 0.2s ease-in-out;
+}

@@ -1,0 +1,97 @@
+site_name: EShop Application Documentation
+plugins:
+  - search
+  - mermaid2:
+      arguments:
+        securityLevel: sandbox
+extra_css:
+  - css/extra_css.css
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.integrate
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+markdown_extensions:
+  - admonition
+  - pymdownx.details    
+nav:
+  - Home: index.md
+  - Workspace Analysis: workspace-analysis.md
+  - Library:
+    - eShop.ServiceDefaults:
+      - Overview: eShop.ServiceDefaults/Overview.md
+      - Configuration Extension: eShop.ServiceDefaults/Configuration Extension.md
+      - OpenAPI Extension: eShop.ServiceDefaults/OpenAPI Extension.md
+      - HTTP Extension: eShop.ServiceDefaults/HTTP Extension.md
+      - Authentication: eShop.ServiceDefaults/Authentication.md
+      - General Utilities: eShop.ServiceDefaults/General Utilities.md
+    - EventBus:
+      - Overview: EventBus/Overview.md
+      - Utilities: EventBus/Utilities.md
+      - Messaging: EventBus/Messaging.md
+    - EventBusRabbitMQ:
+      - Overview: EventBusRabbitMQ/Overview.md
+      - Configuration: EventBusRabbitMQ/Configuration.md
+      - Messaging: EventBusRabbitMQ/Messaging.md
+      - Logging/Observability: EventBusRabbitMQ/Logging-Observability.md
+    - IntegrationEventLogEF:
+      - Overview: IntegrationEventLogEF/Overview.md
+      - Data Interactions: IntegrationEventLogEF/Data Interactions.md
+      - Services: IntegrationEventLogEF/Services.md
+  - Basket API: basket.md
+  - Catalog API:
+    - Overview: Catalog.API/catalog.md
+    - API Reference:
+      - CatalogApi: Catalog.API/apis/CatalogApi.md
+    - Implementation Classes:
+      - CatalogServices: Catalog.API/CatalogServices.md
+      - CatalogAI: Catalog.API/CatalogAI.md
+      - CatalogIntegrationEventService: Catalog.API/CatalogIntegrationEventService.md
+      - CatalogContext: Catalog.API/CatalogContext.md
+      - CatalogContextSeed: Catalog.API/CatalogContextSeed.md
+    - Interfaces:
+      - ICatalogAI: Catalog.API/ICatalogAI.md
+      - ICatalogIntegrationEventService: Catalog.API/ICatalogIntegrationEventService.md
+    - Utilities: Catalog.API/utility.md
+  - Order Domain:
+      - API Features:
+        - Order Creation: Ordering.API/OrdersApi/OrderCreation.md
+        - Order Cancellation: Ordering.API/OrdersApi/OrderCancellation.md
+        - Order Shipping: Ordering.API/OrdersApi/OrderShipping.md
+        - Order Retrieval: Ordering.API/OrdersApi/OrderRetrieval.md
+        - Card Types Management: Ordering.API/OrdersApi/CardTypesManagement.md
+      - Implementation Components:
+        - Commands: Ordering.API/Commands.md
+        - Queries: Ordering.API/Queries.md
+        - Models: Ordering.API/Models.md
+        - Extensions: Ordering.API/Extensions.md
+        - Validations: Ordering.API/Validations.md
+        - Domain Event Handling: Ordering.API/DomainEventHandling.md
+        - Integration Event Handlers: Ordering.API/IntegrationEventHandlers.md
+      - Domain:
+          - Overview: Ordering.Domain/index.md
+          - Base Domain Definitions: Ordering.Domain/BaseDomainDefinition.md
+          - Value Objects: Ordering.Domain/ValueObject.md
+          - Data Interactions: Ordering.Domain/DataInteraction.md
+          - Domain Events: Ordering.Domain/DomainEvent.md
+          - Exception: Ordering.Domain/Exception.md
+          - Aggregates: Ordering.Domain/Aggregate.md
+      - Infrastructure:
+        - Overview: Ordering.Infrastructure/Overview.md
+        - Configuration: Ordering.Infrastructure/Configuration.md
+        - Data Interactions: Ordering.Infrastructure/Data Interactions.md
+        - Services: Ordering.Infrastructure/Services.md
+        - Migrations: Ordering.Infrastructure/Migrations.md
+      - OrderProcessor:
+        - Overview: OrderProcessor/Overview.md
+        - Configuration: OrderProcessor/Configuration.md
+        - Messaging: OrderProcessor/Messaging.md
+        - Serialization: OrderProcessor/Serialization.md
+        - Configuration/Adapters: OrderProcessor/Configuration-Adapters.md
+        - Services: OrderProcessor/Services.md

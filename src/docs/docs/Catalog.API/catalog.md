@@ -77,6 +77,7 @@ sequenceDiagram
     CatalogAPI-->>User: API Response (Success/Error)
     Note right of User: User receives confirmation or error message
 ```
+
 ### Business Rules
 
 1. Product Management
@@ -161,6 +162,19 @@ GET /api/catalog/items
 - Success: 200 OK
 - Error: 400 Bad Request
 
+```mermaid
+flowchart TD
+    Client[Client App] -->|Browse Products| API[Catalog API]
+    API -->|Query Items| Services[Catalog Services]
+    Services -->|Fetch Data| DB[(Database)]
+    DB -->|Return Items| Services
+    Services -->|Format Response| API
+    API -->|Send Results| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
+
 GET /api/catalog/items/{id}
 - Purpose: Retrieves a specific catalog item
 - Parameters: id (int): Item identifier
@@ -168,12 +182,38 @@ GET /api/catalog/items/{id}
 - Success: 200 OK
 - Error: 404 Not Found
 
+```mermaid
+flowchart TD
+    Client[Client App] -->|View Product| API[Catalog API]
+    API -->|Get Item| Services[Catalog Services]
+    Services -->|Query by ID| DB[(Database)]
+    DB -->|Return Item| Services
+    Services -->|Format Response| API
+    API -->|Send Item| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
+
 POST /api/catalog/items
 - Purpose: Creates a new catalog item
 - Body: CatalogItem
 - Returns: Created CatalogItem
 - Success: 201 Created
 - Error: 400 Bad Request
+
+```mermaid
+flowchart TD
+    Client[Client App] -->|Add Product| API[Catalog API]
+    API -->|Validate Data| Services[Catalog Services]
+    Services -->|Insert Item| DB[(Database)]
+    DB -->|Confirm Creation| Services
+    Services -->|Return Created| API
+    API -->|Send Response| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
 
 PUT /api/catalog/items/{id}
 - Purpose: Updates an existing catalog item
@@ -183,11 +223,39 @@ PUT /api/catalog/items/{id}
 - Success: 200 OK
 - Error: 400 Bad Request, 404 Not Found
 
+```mermaid
+flowchart TD
+    Client[Client App] -->|Update Product| API[Catalog API]
+    API -->|Validate Update| Services[Catalog Services]
+    Services -->|Update Item| DB[(Database)]
+    DB -->|Confirm Update| Services
+    Services -->|Publish Event| EventBus[Event Bus]
+    Services -->|Return Updated| API
+    API -->|Send Response| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+    click EventBus "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/EventBus/"
+```
+
 DELETE /api/catalog/items/{id}
 - Purpose: Removes a catalog item
 - Parameters: id (int): Item identifier
 - Success: 204 No Content
 - Error: 404 Not Found
+
+```mermaid
+flowchart TD
+    Client[Client App] -->|Remove Product| API[Catalog API]
+    API -->|Validate Deletion| Services[Catalog Services]
+    Services -->|Delete Item| DB[(Database)]
+    DB -->|Confirm Deletion| Services
+    Services -->|Return Success| API
+    API -->|Send No Content| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
 ```
 
 #### Advanced Search Operations
@@ -202,12 +270,41 @@ GET /api/catalog/items/withsemanticrelevance/{text}
 - Success: 200 OK
 - Error: 400 Bad Request
 
+```mermaid
+flowchart TD
+    Client[Client App] -->|Semantic Search| API[Catalog API]
+    API -->|Process Query| Services[Catalog Services]
+    Services -->|Generate Embedding| AI[AI Service]
+    AI -->|Return Vector| Services
+    Services -->|Vector Search| DB[(Database)]
+    DB -->|Return Matches| Services
+    Services -->|Format Results| API
+    API -->|Send Items| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+    click AI "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/CatalogAI.cs"
+```
+
 GET /api/catalog/items/by
 - Purpose: Batch retrieval of items
 - Parameters: ids (int[]): Array of item IDs
 - Returns: List<CatalogItem>
 - Success: 200 OK
 - Error: 400 Bad Request
+
+```mermaid
+flowchart TD
+    Client[Client App] -->|Batch Fetch| API[Catalog API]
+    API -->|Validate IDs| Services[Catalog Services]
+    Services -->|Query Multiple| DB[(Database)]
+    DB -->|Return Items| Services
+    Services -->|Format List| API
+    API -->|Send Batch| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
 
 GET /api/catalog/items/by/{name}
 - Purpose: Name-based search
@@ -218,6 +315,19 @@ GET /api/catalog/items/by/{name}
 - Returns: PaginatedItems<CatalogItem>
 - Success: 200 OK
 - Error: 400 Bad Request
+
+```mermaid
+flowchart TD
+    Client[Client App] -->|Name Search| API[Catalog API]
+    API -->|Process Name| Services[Catalog Services]
+    Services -->|Text Query| DB[(Database)]
+    DB -->|Return Matches| Services
+    Services -->|Paginate Results| API
+    API -->|Send Items| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
 ```
 
 #### Category and Brand Management
@@ -228,11 +338,37 @@ GET /api/catalog/catalogtypes
 - Success: 200 OK
 - Error: 400 Bad Request
 
+```mermaid
+flowchart TD
+    Client[Client App] -->|Get Types| API[Catalog API]
+    API -->|Fetch Types| Services[Catalog Services]
+    Services -->|Query Types| DB[(Database)]
+    DB -->|Return Types| Services
+    Services -->|Format List| API
+    API -->|Send Types| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
+
 GET /api/catalog/catalogbrands
 - Purpose: Lists all available catalog brands
 - Returns: List<CatalogBrand>
 - Success: 200 OK
 - Error: 400 Bad Request
+
+```mermaid
+flowchart TD
+    Client[Client App] -->|Get Brands| API[Catalog API]
+    API -->|Fetch Brands| Services[Catalog Services]
+    Services -->|Query Brands| DB[(Database)]
+    DB -->|Return Brands| Services
+    Services -->|Format List| API
+    API -->|Send Brands| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
 
 GET /api/catalog/items/type/{typeId}/brand/{brandId?}
 - Purpose: Filter items by type and optional brand
@@ -244,6 +380,19 @@ GET /api/catalog/items/type/{typeId}/brand/{brandId?}
 - Returns: PaginatedItems<CatalogItem>
 - Success: 200 OK
 - Error: 400 Bad Request
+
+```mermaid
+flowchart TD
+    Client[Client App] -->|Filter Items| API[Catalog API]
+    API -->|Apply Filters| Services[Catalog Services]
+    Services -->|Query Filtered| DB[(Database)]
+    DB -->|Return Filtered| Services
+    Services -->|Paginate Results| API
+    API -->|Send Filtered| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
 ```
 
 #### Image Management
@@ -255,6 +404,19 @@ GET /api/catalog/items/{id}/pic
 - Success: 200 OK
 - Error: 404 Not Found
 
+```mermaid
+flowchart TD
+    Client[Client App] -->|View Image| API[Catalog API]
+    API -->|Get Image| Services[Catalog Services]
+    Services -->|Fetch File| Storage[(Blob Storage)]
+    Storage -->|Return Image| Services
+    Services -->|Stream File| API
+    API -->|Send Image| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+```
+
 PUT /api/catalog/items/{id}/pic
 - Purpose: Updates product image
 - Parameters: id (int): Item identifier
@@ -262,17 +424,42 @@ PUT /api/catalog/items/{id}/pic
 - Success: 200 OK
 - Error: 400 Bad Request, 404 Not Found
 
-#### Advanced Search
+```mermaid
+flowchart TD
+    Client[Client App] -->|Upload Image| API[Catalog API]
+    API -->|Validate File| Services[Catalog Services]
+    Services -->|Store Image| Storage[(Blob Storage)]
+    Storage -->|Confirm Upload| Services
+    Services -->|Update Reference| DB[(Database)]
+    Services -->|Return Success| API
+    API -->|Send Response| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
 ```
+
 GET /api/catalog/items/withsemanticrelevance
 - Searches items using AI-powered semantic relevance
 - Parameters: text
 - Returns: PaginatedItems<CatalogItem>
 
-GET /api/catalog/items/type/{typeId}/brand/{brandId}
-- Filters items by type and brand
-- Parameters: typeId, brandId (optional)
-- Returns: PaginatedItems<CatalogItem>
+```mermaid
+flowchart TD
+    Client[Client App] -->|Semantic Search| API[Catalog API]
+    API -->|Process Query| Services[Catalog Services]
+    Services -->|Generate Embedding| AI[(AI Service)]
+    AI -->|Return Vector| Services
+    Services -->|Vector Search| VectorDB[(Vector Database)]
+    VectorDB -->|Find Matches| Services
+    Services -->|Fetch Items| DB[(Database)]
+    DB -->|Return Items| Services
+    Services -->|Rank Results| API
+    API -->|Send Results| Client
+
+    click API "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Apis/CatalogApi.cs"
+    click Services "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/"
+    click AI "https://github.com/your-repo/automated-doc-poc-repo/blob/main/src/Catalog.API/Services/CatalogAI.cs"
+```
 ```
 
 ### Key Components
