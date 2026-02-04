@@ -1,0 +1,89 @@
+# ============================================
+# MKDOCS CONFIGURATION
+# eShop API Documentation
+# ============================================
+
+site_name: eShop API Documentation
+site_description: Auto-generated documentation for eShop microservices
+site_author: Documentation Generator
+
+# --------------------------------------------
+# THEME CONFIGURATION
+# --------------------------------------------
+theme:
+  name: material
+  palette:
+    # Light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+# --------------------------------------------
+# NAVIGATION
+# --------------------------------------------
+# Add new APIs here as you generate them
+nav:
+  - Home: index.md
+  - APIs:
+    - Ordering API: ordering-api.md
+    - Catalog API: catalog-api.md
+    - Basket API: basket-api.md
+
+# --------------------------------------------
+# PLUGINS
+# --------------------------------------------
+plugins:
+  - search
+  - mermaid2
+
+# --------------------------------------------
+# MARKDOWN EXTENSIONS
+# --------------------------------------------
+markdown_extensions:
+  # Mermaid diagrams
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  
+  # Code highlighting
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  
+  # Other extensions
+  - pymdownx.details
+  - pymdownx.mark
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+# --------------------------------------------
+# EXTRA
+# --------------------------------------------
+extra:
+  generator: false
