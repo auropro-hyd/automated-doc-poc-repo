@@ -219,7 +219,60 @@ generator: Automated Documentation Generator v1.0
         shutil.copy(output_path, docs_path)
         print(f"Copied to: {docs_path}")
         
+        # Update index.md to reflect the new documentation
+        self._update_index_status(filename, api_name)
+        
         return output_path
+    
+    def _update_index_status(self, filename: str, api_name: str) -> None:
+        """
+        Update the index.md file to show the API as documented.
+        
+        Args:
+            filename: The documentation filename (e.g., 'ordering-api.md')
+            api_name: The API name (e.g., 'Ordering API')
+        """
+        index_path = self.config.docs_dir / "index.md"
+        
+        if not index_path.exists():
+            return
+        
+        try:
+            content = index_path.read_text(encoding='utf-8')
+            
+            # Map of possible patterns to replace
+            # Pattern: "| API Name | description | 🔄 Coming soon |" or placeholder status
+            api_key = api_name.lower().replace(' api', '').strip()
+            
+            # Replace "Coming soon" with "Documented" for this API
+            patterns = [
+                (f"| {api_name} |", f"| [{api_name}]({filename}) |"),
+                (f"🔄 Coming soon |", "✅ Documented |"),
+                ("📄 Placeholder |", "✅ Documented |"),
+            ]
+            
+            # More specific replacement based on API
+            if "ordering" in api_key:
+                content = content.replace(
+                    "| Ordering API |",
+                    f"| [Ordering API](ordering-api.md) |"
+                )
+            elif "catalog" in api_key:
+                content = content.replace(
+                    "| Catalog API |",
+                    f"| [Catalog API](catalog-api.md) |"
+                )
+            elif "basket" in api_key:
+                content = content.replace(
+                    "| Basket API |",
+                    f"| [Basket API](basket-api.md) |"
+                )
+            
+            index_path.write_text(content, encoding='utf-8')
+            print(f"Updated index.md status for {api_name}")
+            
+        except Exception as e:
+            print(f"Warning: Could not update index.md: {e}")
     
     def run(self) -> Path:
         """
