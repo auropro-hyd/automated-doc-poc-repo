@@ -1,0 +1,19 @@
+# Generated documentation site
+docs/.venv
+docs/css
+
+# Build outputs (all projects)
+**/bin/
+**/obj/
+**/artifacts/
+**/TestResults/
+**/*.nupkg
+**/*.snupkg
+**/*.nuspec
+**/*.pdb
+**/*.dll
+**/*.exe
+**/*.deps.json
+**/*.runtimeconfig.json
+**/*.cache
+**/*.log
