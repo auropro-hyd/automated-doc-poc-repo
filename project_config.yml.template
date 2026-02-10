@@ -1,0 +1,150 @@
+# ============================================================
+# PROJECT CONFIGURATION TEMPLATE
+# Central config for the documentation generator.
+#
+# SETUP:
+#   1. Copy this file:  cp project_config.yml.template project_config.yml
+#   2. Edit project_config.yml with your repository details
+#   3. project_config.yml is gitignored (contains repo-specific paths)
+#   4. API keys go in .env (see .env.template)
+# ============================================================
+
+# --- Repository ---
+repository:
+  url: "https://github.com/your-org/your-repo"
+  branch: "main"
+  # source_url_format supports GitHub, GitLab, Bitbucket:
+  #   github:    {repo_url}/blob/{branch}/{file_path}#L{line}
+  #   gitlab:    {repo_url}/-/blob/{branch}/{file_path}#L{line}
+  #   bitbucket: {repo_url}/src/{branch}/{file_path}#lines-{line}
+  source_url_format: "{repo_url}/blob/{branch}/{file_path}#L{line}"
+
+# --- Project / Language ---
+language: "csharp"            # csharp | java | python | typescript (future)
+file_extensions: ["*.cs"]     # File patterns to scan
+exclude_folders:              # Folders to skip during scanning
+  - "bin"
+  - "obj"
+  - "Properties"
+  - "Migrations"
+  - ".vs"
+  - "packages"
+  - "node_modules"
+exclude_files:                # Files to skip during scanning
+  - "GlobalUsings.cs"
+  - "AssemblyInfo.cs"
+  - "*.Designer.cs"
+
+# --- APIs to Document ---
+# Each API entry defines source paths and dependent libraries.
+# Add as many APIs as your project has.
+apis:
+  my_api:
+    display_name: "My API"
+    source_paths:
+      - "src/MyAPI"
+    dependent_libraries:
+      - "src/MyDomain"
+      - "src/MyInfrastructure"
+
+# --- File Classification Rules ---
+# Regex patterns to classify source files into documentation categories.
+# Order matters: first match wins.
+# Categories drive which prompt template is used and which output file
+# the content goes into.
+#
+# To adapt for different architectures:
+#   CQRS/DDD:  Use *CommandHandler, *QueryHandler, *Aggregate patterns
+#   MVC:       Use *Controller, *Service, *Repository patterns
+#   Clean:     Use *UseCase, *Gateway, *Presenter patterns
+classification_rules:
+  - pattern: ".*CommandHandler\\.cs$"
+    category: "command_handler"
+    doc_file: "Commands.md"
+    doc_title: "Commands"
+
+  - pattern: ".*Queries?\\.cs$"
+    category: "query"
+    doc_file: "Queries.md"
+    doc_title: "Queries"
+
+  - pattern: ".*Validator\\.cs$"
+    category: "validator"
+    doc_file: "Validations.md"
+    doc_title: "Validations"
+
+  - pattern: ".*DomainEventHandler\\.cs$"
+    category: "domain_event_handler"
+    doc_file: "DomainEventHandling.md"
+    doc_title: "Domain Event Handling"
+
+  - pattern: ".*IntegrationEventHandler\\.cs$"
+    category: "integration_event_handler"
+    doc_file: "IntegrationEventHandlers.md"
+    doc_title: "Integration Event Handlers"
+
+  - pattern: ".*Extensions?\\.cs$"
+    category: "extension"
+    doc_file: "Extensions.md"
+    doc_title: "Extensions"
+
+  - pattern: ".*AggregatesModel/.*\\.cs$"
+    category: "aggregate"
+    doc_file: "Aggregate.md"
+    doc_title: "Aggregates"
+
+  - pattern: ".*Api\\.cs$|.*Controller\\.cs$"
+    category: "api_endpoint"
+    doc_file: null
+    doc_title: null
+
+  - pattern: ".*\\.cs$"
+    category: "model"
+    doc_file: "Models.md"
+    doc_title: "Models"
+
+# --- Feature Detection ---
+# How to identify API features (endpoints become their own doc pages).
+# feature_subfolder is auto-detected from the endpoint class name (e.g., OrdersApi).
+feature_detection:
+  endpoint_pattern: "\\[(Http(Get|Post|Put|Delete|Patch))\\]|MapGet|MapPost|MapPut|MapDelete"
+  # feature_keywords maps method name substrings to feature names.
+  # Customise for your codebase (e.g., add Search, Browse for a Catalog API).
+  feature_keywords:
+    Create: "Creation"
+    Get: "Retrieval"
+    Update: "Update"
+    Delete: "Deletion"
+
+# --- Documentation Output ---
+output:
+  docs_dir: "docs"
+  mkdocs_config: "mkdocs.yml"
+  site_name: "My Application Documentation"
+  css_dir: "css"
+
+# --- Template Examples ---
+# Path to reference template docs used as few-shot examples in LLM prompts.
+# These should point to READ-ONLY template files (e.g., in templates/ folder),
+# NOT to the generated output (which gets overwritten each run).
+# Set to null if no reference templates are available.
+template_examples:
+  handler: null
+  feature: null
+  aggregate: null
+  infrastructure: null
+  simple: null
+  overview: null
+
+# --- LLM Settings ---
+llm:
+  provider: "openai"          # openai | claude | azure
+  model: "gpt-4o"
+  max_tokens: 8192
+  temperature: 0.3
+  retry_attempts: 3
+  retry_delay_seconds: 2
+
+# --- Logging ---
+logging:
+  level: "INFO"               # DEBUG | INFO | WARNING | ERROR

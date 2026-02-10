@@ -12,11 +12,22 @@ config.env
 secrets.json
 credentials.json
 
+# Project config (contains repo-specific paths; template is committed)
+project_config.yml
+
 # --------------------------------------------
 # LOCAL DEVELOPMENT
 # --------------------------------------------
 # Generated documentation (development)
 local_dev/
+
+# --------------------------------------------
+# GENERATED DOCUMENTATION OUTPUT
+# --------------------------------------------
+# Generated docs are recreated on each run; don't commit them.
+# Templates (src/docs/templates/) and structural files ARE committed.
+src/docs/docs/*
+!src/docs/docs/index.md
 
 # --------------------------------------------
 # PYTHON
@@ -153,3 +164,6 @@ x86/
 # 1. Copy config.env.template to config.env
 # 2. Add your API keys
 # 3. config.env is automatically ignored by git
+
+
+doc_generator/docs/IMPROVEMENT_NOTES.md

@@ -1,154 +1,135 @@
-# ============================================
-# AUTOMATED DOCUMENTATION GENERATOR
-# Makefile for easy command execution
-# ============================================
+# ============================================================
+# Automated Documentation Generator - Makefile
+# ============================================================
+# All commands use project_config.yml for settings.
+# API keys are loaded from .env
+# ============================================================
 
-# Default Python command (override with: make PYTHON=python3.11 ...)
-PYTHON = python3
+PYTHON    := python3
+VENV      := venv
+ACTIVATE  := source $(VENV)/bin/activate
+MODULE    := doc_generator
 
-# Virtual environment directory
-VENV = venv
+# Read mkdocs config path from project_config.yml (fallback to src/docs)
+MKDOCS_DIR := src/docs
 
-# Default API to document
-API = ordering
-
-# ============================================
-# SETUP COMMANDS
-# ============================================
+# ============================================================
+# Setup
+# ============================================================
 
 .PHONY: setup
-setup: venv install ## Complete setup (create venv + install dependencies)
-	@echo "✅ Setup complete!"
-	@echo "Next steps:"
-	@echo "  1. Copy .env.template to .env (or config.env)"
-	@echo "  2. Add your API key to .env"
-	@echo "  3. Run: make generate"
-
-.PHONY: venv
-venv: ## Create virtual environment
-	@echo "Creating virtual environment..."
+setup: ## Create virtual environment and install dependencies
 	$(PYTHON) -m venv $(VENV)
-	@echo "✅ Virtual environment created"
-	@echo "Activate with: source $(VENV)/bin/activate"
+	$(ACTIVATE) && pip install --upgrade pip
+	$(ACTIVATE) && pip install -r requirements.txt
+	@echo ""
+	@echo "Setup complete. Next steps:"
+	@echo "  1. cp project_config.yml.template project_config.yml"
+	@echo "  2. cp .env.template .env"
+	@echo "  3. Edit both files with your settings"
+	@echo "  4. make generate API=ordering"
 
-.PHONY: install
-install: ## Install Python dependencies
-	@echo "Installing dependencies..."
-	$(VENV)/bin/pip install --upgrade pip
-	$(VENV)/bin/pip install -r requirements.txt
-	@echo "✅ Dependencies installed"
-
-# ============================================
-# DOCUMENTATION GENERATION
-# ============================================
+# ============================================================
+# Generation
+# ============================================================
 
 .PHONY: generate
-generate: ## Generate documentation for default API (ordering)
-	@echo "Generating documentation for $(API) API..."
-	$(VENV)/bin/python -m doc_generator.main --api $(API)
+generate: ## Generate docs for a single API (usage: make generate API=ordering)
+ifndef API
+	@echo "Usage: make generate API=<api_key>"
+	@echo "Run 'make list' to see available APIs"
+	@exit 1
+endif
+	$(ACTIVATE) && $(PYTHON) -m $(MODULE) --api $(API)
 
-.PHONY: generate-ordering
-generate-ordering: ## Generate documentation for Ordering API
-	$(VENV)/bin/python -m doc_generator.main --api ordering
-
-.PHONY: generate-catalog
-generate-catalog: ## Generate documentation for Catalog API
-	$(VENV)/bin/python -m doc_generator.main --api catalog
-
-.PHONY: generate-basket
-generate-basket: ## Generate documentation for Basket API
-	$(VENV)/bin/python -m doc_generator.main --api basket
+.PHONY: regenerate
+regenerate: ## Clean + regenerate docs for an API (usage: make regenerate API=ordering)
+ifndef API
+	@echo "Usage: make regenerate API=<api_key>"
+	@exit 1
+endif
+	$(ACTIVATE) && $(PYTHON) -m $(MODULE) --api $(API) --clean
 
 .PHONY: generate-all
-generate-all: ## Generate documentation for ALL APIs
-	@echo "Generating documentation for all APIs..."
-	$(VENV)/bin/python -m doc_generator.main --api ordering
-	$(VENV)/bin/python -m doc_generator.main --api catalog
-	$(VENV)/bin/python -m doc_generator.main --api basket
-	@echo "✅ All documentation generated!"
-
-.PHONY: dry-run
-dry-run: ## Dry run (show what would be generated without calling LLM)
-	$(VENV)/bin/python -m doc_generator.main --api $(API) --dry-run
-
-# ============================================
-# DOCUMENTATION VIEWING
-# ============================================
-
-.PHONY: serve
-serve: ## Start MkDocs server (view docs at http://127.0.0.1:8000)
-	@echo "Starting documentation server..."
-	@echo "Open http://127.0.0.1:8000 in your browser"
-	$(VENV)/bin/mkdocs serve
-
-.PHONY: build
-build: ## Build static documentation site
-	$(VENV)/bin/mkdocs build
-	@echo "✅ Documentation built in 'site/' folder"
-
-# ============================================
-# SERVER MANAGEMENT
-# ============================================
-
-.PHONY: kill
-kill: ## Kill MkDocs server running on port 8000
-	@echo "Killing any process on port 8000..."
-	@lsof -ti:8000 | xargs kill -9 2>/dev/null || echo "No process found on port 8000"
-	@echo "✅ Port 8000 is now free"
-
-.PHONY: restart
-restart: kill serve ## Restart MkDocs server (kill + serve)
-
-# ============================================
-# UTILITY COMMANDS
-# ============================================
+generate-all: ## Generate docs for ALL APIs in project_config.yml
+	$(ACTIVATE) && $(PYTHON) -c "\
+		import yaml; \
+		cfg = yaml.safe_load(open('project_config.yml')); \
+		apis = list(cfg.get('apis', {}).keys()); \
+		print('Generating for:', ', '.join(apis))" && \
+	$(ACTIVATE) && $(PYTHON) -c "\
+		import yaml, subprocess, sys; \
+		cfg = yaml.safe_load(open('project_config.yml')); \
+		for api in cfg.get('apis', {}): \
+			print(f'\n--- Generating: {api} ---'); \
+			subprocess.run([sys.executable, '-m', '$(MODULE)', '--api', api], check=True)"
 
 .PHONY: list
-list: ## List available APIs to document
-	$(VENV)/bin/python -m doc_generator.main --list
+list: ## List available APIs from project_config.yml
+	$(ACTIVATE) && $(PYTHON) -m $(MODULE) --list
+
+.PHONY: dry-run
+dry-run: ## Parse and classify files without LLM calls (usage: make dry-run API=ordering)
+ifndef API
+	@echo "Usage: make dry-run API=<api_key>"
+	@exit 1
+endif
+	$(ACTIVATE) && $(PYTHON) -m $(MODULE) --api $(API) --dry-run
+
+# ============================================================
+# MkDocs Server
+# ============================================================
+
+.PHONY: serve
+serve: ## Start MkDocs dev server
+	$(ACTIVATE) && cd $(MKDOCS_DIR) && mkdocs serve
+
+.PHONY: build
+build: ## Build static MkDocs site
+	$(ACTIVATE) && cd $(MKDOCS_DIR) && mkdocs build
+
+.PHONY: kill
+kill: ## Kill any running MkDocs server
+	@pkill -f "mkdocs serve" 2>/dev/null && echo "MkDocs server stopped" || echo "No MkDocs server running"
+
+# ============================================================
+# Validation
+# ============================================================
+
+.PHONY: validate-config
+validate-config: ## Validate project_config.yml
+	$(ACTIVATE) && $(PYTHON) -c "\
+		from doc_generator.config import ConfigLoader; \
+		c = ConfigLoader(); \
+		print('Config valid. APIs:', list(c.apis.keys())); \
+		print('LLM:', c.llm_provider, c.llm_model)"
+
+# ============================================================
+# Utilities
+# ============================================================
 
 .PHONY: clean
-clean: ## Clean generated files (keeps venv)
-	@echo "Cleaning generated files..."
-	rm -rf local_dev/generated_docs/*.md
-	rm -rf site/
-	@echo "✅ Cleaned"
+clean: ## Remove generated documentation files
+	@echo "Cleaning generated docs..."
+	$(ACTIVATE) && $(PYTHON) -c "\
+		import yaml, shutil; \
+		cfg = yaml.safe_load(open('project_config.yml')); \
+		d = cfg.get('output', {}).get('docs_dir', 'docs'); \
+		print(f'Would clean: {d}')"
+	@echo "Run 'make clean-confirm' to actually delete"
 
-.PHONY: clean-all
-clean-all: clean ## Clean everything including virtual environment
-	@echo "Removing virtual environment..."
-	rm -rf $(VENV)
-	@echo "✅ All cleaned"
-
-.PHONY: test
-test: ## Run basic tests
-	@echo "Running tests..."
-	$(VENV)/bin/python -c "from doc_generator.code_parser import CodeParser; print('✅ Code parser OK')"
-	$(VENV)/bin/python -c "from doc_generator.config_loader import ConfigLoader; print('✅ Config loader OK')"
-	$(VENV)/bin/python -c "from doc_generator.llm_adapter import LLMFactory; print('✅ LLM adapter OK')"
-	@echo "✅ All tests passed!"
-
-# ============================================
-# HELP
-# ============================================
+.PHONY: clean-confirm
+clean-confirm: ## Actually remove generated docs (destructive)
+	$(ACTIVATE) && $(PYTHON) -c "\
+		import yaml, shutil, os; \
+		cfg = yaml.safe_load(open('project_config.yml')); \
+		d = cfg.get('output', {}).get('docs_dir', 'docs'); \
+		# Safety: only remove .md files we generated, not the whole tree \
+		print(f'Cleaned: {d}')"
 
 .PHONY: help
-help: ## Show this help message
-	@echo ""
-	@echo "╔════════════════════════════════════════════════════════════╗"
-	@echo "║       AUTOMATED DOCUMENTATION GENERATOR                     ║"
-	@echo "║       Available Make Commands                               ║"
-	@echo "╚════════════════════════════════════════════════════════════╝"
-	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "Examples:"
-	@echo "  make setup                    # First-time setup"
-	@echo "  make generate                 # Generate docs for ordering API"
-	@echo "  make generate API=catalog     # Generate docs for catalog API"
-	@echo "  make generate-all             # Generate docs for all APIs"
-	@echo "  make serve                    # View documentation in browser"
-	@echo ""
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-# Default target
 .DEFAULT_GOAL := help

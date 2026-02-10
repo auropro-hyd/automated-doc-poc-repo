@@ -1,364 +1,219 @@
 # Automated Documentation Generator
 
-An AI-powered tool that automatically generates comprehensive documentation for .NET APIs by analyzing source code.
+A config-driven tool that automatically generates comprehensive, structured
+documentation for .NET applications using LLM analysis. Produces
+MkDocs-compatible markdown with Mermaid diagrams, clickable source links,
+cross-page navigation, and hierarchical site structure.
 
-## Overview
+## Architecture
 
-This tool reads .NET source code files, sends them to an LLM (Large Language Model) for analysis, and generates structured markdown documentation following a standardized template.
-
-### Features
-
-- **Model-Agnostic**: Supports OpenAI, Claude (Anthropic), and Azure OpenAI
-- **Multi-API Support**: Document any API with a single command
-- **Structured Output**: Generates documentation with 8 standardized sections
-- **Mermaid Diagrams**: Auto-generates sequence and class dependency diagrams
-- **MkDocs Integration**: Ready-to-view documentation in browser
-- **Makefile**: Easy command execution
-
----
+```
+project_config.yml          Central config (all settings)
+.env                        API keys only (secrets)
+        │
+        ▼
+config.py                   Loads YAML + .env, validates paths
+        │
+        ▼
+parsing/
+  parser.py                 Scans source files (config-driven)
+  classifier.py             Classifies files using regex rules from YAML
+        │
+        ▼
+generation/
+  orchestrator.py           Groups files, makes targeted LLM calls
+  context.py                Builds class metadata, detects features
+        │
+llm/
+  adapters.py               Multi-provider LLM abstraction (OpenAI/Claude/Azure)
+  prompts.py                Prompt templates per doc type
+        │
+        ▼
+output/
+  assembler.py              Writes markdown, resolves cross-references
+  navigation.py             Merges into mkdocs.yml nav (preserves other APIs)
+        │
+        ▼
+src/docs/docs/              Generated MkDocs-ready documentation
+src/docs/templates/         Read-only reference templates (never overwritten)
+```
 
 ## Quick Start
 
-### Option 1: Using Makefile (Recommended)
+### 1. Setup
 
 ```bash
-# First-time setup (creates venv + installs dependencies)
+# Clone and enter the repo
+git clone <repo-url>
+cd automated-doc-poc-repo
+
+# Create virtual environment and install dependencies
 make setup
+source venv/bin/activate
+```
 
-# Add your API key to .env file
-# Then generate documentation
-make generate                  # Default: Ordering API
-make generate API=catalog      # Catalog API
-make generate-all              # All APIs
+### 2. Configure
 
-# View in browser
+```bash
+# Copy config templates
+cp project_config.yml.template project_config.yml
+cp .env.template .env
+
+# Edit project_config.yml with your repository details:
+#   - repository.url and branch
+#   - apis section (source paths and dependencies)
+#   - classification_rules (adjust for your architecture)
+#   - template_examples (paths to reference docs, or null)
+
+# Edit .env with your LLM API key
+```
+
+### 3. Generate
+
+```bash
+# List available APIs
+make list
+
+# Generate docs for a specific API
+make generate API=ordering
+
+# Clean + regenerate (removes stale files first)
+make regenerate API=ordering
+
+# Or generate for all configured APIs
+make generate-all
+
+# Dry-run (parse and classify without LLM calls)
+make dry-run API=ordering
+```
+
+### 4. View
+
+```bash
+# Start MkDocs dev server
 make serve
+
 # Open http://127.0.0.1:8000
+
+# Stop the server
+make kill
 ```
-
-### Option 2: Manual Setup
-
-```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate       # On macOS/Linux
-# OR: venv\Scripts\activate    # On Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure API key (copy template)
-cp config.env.template .env
-# Edit .env and add your API key
-
-# Generate documentation
-python -m doc_generator.main --api ordering
-
-# View in browser
-mkdocs serve
-```
-
----
-
-## Makefile Commands
-
-Run `make help` to see all available commands:
-
-### Setup & Generation
-
-| Command | Description |
-|---------|-------------|
-| `make setup` | Complete first-time setup (venv + dependencies) |
-| `make generate` | Generate docs for default API (ordering) |
-| `make generate API=catalog` | Generate docs for specific API |
-| `make generate-ordering` | Generate docs for Ordering API |
-| `make generate-catalog` | Generate docs for Catalog API |
-| `make generate-basket` | Generate docs for Basket API |
-| `make generate-all` | Generate docs for ALL APIs |
-
-### Server Management
-
-| Command | Description |
-|---------|-------------|
-| `make serve` | Start MkDocs server (http://127.0.0.1:8000) |
-| `make kill` | Kill server running on port 8000 |
-| `make restart` | Restart server (kill + serve) |
-
-### Utilities
-
-| Command | Description |
-|---------|-------------|
-| `make list` | List available APIs |
-| `make dry-run` | Test without calling LLM |
-| `make clean` | Clean generated files |
-| `make test` | Run basic tests |
-| `make help` | Show all commands |
-
----
-
-## Typical Workflow
-
-### Daily Usage
-
-```bash
-# 1. Start the documentation server (keep running in one terminal)
-make serve
-# Open http://127.0.0.1:8000 in browser
-
-# 2. In another terminal, generate documentation
-make generate                    # Ordering API (default)
-make generate API=catalog        # Catalog API
-make generate API=basket         # Basket API
-
-# Browser auto-refreshes when docs are generated!
-# Just click sidebar to switch between APIs
-
-# 3. When done, stop the server
-# Press Ctrl+C in the terminal running "make serve"
-# OR run: make kill
-```
-
-### When to Use `make kill`
-
-| Situation | What to do |
-|-----------|------------|
-| Error: "Address already in use" | Run `make kill` then `make serve` |
-| Server not responding | Run `make restart` |
-| Done viewing documentation | Press `Ctrl+C` or `make kill` |
-| Generating new docs | **Don't kill!** Server auto-refreshes |
-
----
-
-## Multi-API Support
-
-The tool supports documenting multiple APIs:
-
-```bash
-# Using Makefile
-make generate API=ordering     # Ordering API
-make generate API=catalog      # Catalog API
-make generate API=basket       # Basket API
-
-# Using Python directly
-python -m doc_generator.main --api ordering
-python -m doc_generator.main --api catalog
-python -m doc_generator.main --api basket
-
-# List all available APIs
-python -m doc_generator.main --list
-```
-
-### Available APIs
-
-| API | Source Paths | Output File |
-|-----|--------------|-------------|
-| `ordering` | Ordering.API + Domain + Infrastructure | `ordering-api.md` |
-| `catalog` | Catalog.API | `catalog-api.md` |
-| `basket` | Basket.API | `basket-api.md` |
-| `custom` | (configurable in .env) | `custom.md` |
-
----
 
 ## Configuration
 
-### Environment File
+All settings live in `project_config.yml`. API keys live in `.env`.
 
-The tool looks for configuration in this order:
-1. `.env` (preferred)
-2. `config.env` (alternative)
+### Key Sections
 
-Copy the template and add your API key:
+| Section                                 | Purpose                                                           |
+| --------------------------------------- | ----------------------------------------------------------------- |
+| `repository`                          | Git repo URL, branch, source URL format (GitHub/GitLab/Bitbucket) |
+| `language` / `file_extensions`      | What source files to scan                                         |
+| `exclude_folders` / `exclude_files` | What to skip                                                      |
+| `apis`                                | Each API with source paths and dependent libraries                |
+| `classification_rules`                | Regex patterns mapping files to documentation categories          |
+| `feature_detection`                   | How to identify API features for feature pages                    |
+| `output`                              | Where to write docs, MkDocs config path, site name                |
+| `template_examples`                   | Reference doc files for few-shot LLM prompts                      |
+| `llm`                                 | Provider, model, max_tokens, temperature, retry settings          |
+| `logging`                             | Log level                                                         |
 
-```bash
-cp config.env.template .env
-```
+### Adapting for Different Architectures
 
-### Configuration Options
+**CQRS/DDD** (default): Classification rules match `*CommandHandler.cs`,
+`*Validator.cs`, `AggregatesModel/*`, etc.
 
-| Variable | Description | Options |
-|----------|-------------|---------|
-| `LLM_PROVIDER` | AI provider to use | `openai`, `claude`, `azure` |
-| `TARGET_API` | Default API to document | `ordering`, `catalog`, `basket`, `custom` |
-| `OPENAI_API_KEY` | OpenAI API key | Your key from platform.openai.com |
-| `OPENAI_MODEL` | OpenAI model | `gpt-4-turbo-preview` (default) |
-| `CLAUDE_API_KEY` | Anthropic API key | Your key from console.anthropic.com |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI key | Your key from Azure portal |
-| `INCLUDE_DIAGRAMS` | Generate Mermaid diagrams | `true` or `false` |
+**MVC**: Change rules to match `*Controller.cs`, `*Service.cs`,
+`*Repository.cs`.
 
-### Adding a New API
+**Clean Architecture**: Change rules to match `*UseCase.cs`,
+`*Gateway.cs`, `*Presenter.cs`.
 
-1. Edit `doc_generator/config_loader.py` and add to `API_CONFIGS`:
-   ```python
-   API_CONFIGS = {
-       ...
-       "newapi": {
-           "paths": "src/NewAPI,src/NewAPI.Domain",
-           "name": "New API",
-           "filename": "newapi.md"
-       }
-   }
-   ```
+No Python code changes are needed -- only YAML edits.
 
-2. Add navigation in `mkdocs.yml`:
-   ```yaml
-   nav:
-     - Home: index.md
-     - APIs:
-       - New API: newapi.md
-   ```
+### Adapting for Different Git Platforms
 
-3. Generate documentation:
-   ```bash
-   make generate API=newapi
-   ```
+Set `repository.source_url_format`:
 
----
+- **GitHub**: `{repo_url}/blob/{branch}/{file_path}#L{line}`
+- **GitLab**: `{repo_url}/-/blob/{branch}/{file_path}#L{line}`
+- **Bitbucket**: `{repo_url}/src/{branch}/{file_path}#lines-{line}`
+
+## Makefile Commands
+
+| Command                       | Description                               |
+| ----------------------------- | ----------------------------------------- |
+| `make setup`                | Create venv and install dependencies      |
+| `make generate API=<key>`   | Generate docs for one API                 |
+| `make regenerate API=<key>` | Clean old output + regenerate for one API |
+| `make generate-all`         | Generate docs for all APIs                |
+| `make list`                 | List available APIs                       |
+| `make dry-run API=<key>`    | Parse/classify without LLM calls          |
+| `make serve`                | Start MkDocs dev server                   |
+| `make build`                | Build static site                         |
+| `make kill`                 | Stop MkDocs server                        |
+| `make validate-config`      | Validate project_config.yml               |
+| `make help`                 | Show all commands                         |
 
 ## Project Structure
 
 ```
 automated-doc-poc-repo/
-│
-├── Makefile                     # Easy command execution
-├── README.md                    # This file
-├── .gitignore                   # Git ignore rules
-├── .env                         # Your configuration (not in git)
-├── config.env.template          # Configuration template
-├── requirements.txt             # Python dependencies
-├── mkdocs.yml                   # MkDocs configuration
-│
-├── doc_generator/               # Documentation generator tool
-│   ├── __init__.py
-│   ├── main.py                  # Entry point (CLI)
-│   ├── config_loader.py         # Configuration management
-│   ├── code_parser.py           # Source code parsing
-│   ├── llm_adapter.py           # LLM provider abstraction
-│   ├── doc_generator.py         # Documentation generation
-│   └── README.md                # Technical documentation
-│
-├── docs/                        # MkDocs source (viewable docs)
-│   ├── index.md                 # Homepage
-│   ├── ordering-api.md          # Generated/placeholder
-│   ├── catalog-api.md           # Generated/placeholder
-│   └── basket-api.md            # Generated/placeholder
-│
-├── local_dev/                   # Development outputs (not in git)
-│   └── generated_docs/          # Raw generated files
-│
-└── src/                         # .NET source code
-    ├── Ordering.API/
-    ├── Ordering.Domain/
-    ├── Ordering.Infrastructure/
-    ├── Catalog.API/
-    └── Basket.API/
+├── doc_generator/
+│   ├── __init__.py              Package init
+│   ├── __main__.py              python -m doc_generator entry point
+│   ├── cli.py                   CLI argument parsing and main()
+│   ├── config.py                Config loader (YAML + .env)
+│   ├── models.py                Shared data classes
+│   ├── parsing/
+│   │   ├── __init__.py
+│   │   ├── parser.py            Regex-based source code extraction
+│   │   └── classifier.py        File classification + source URL builder
+│   ├── llm/
+okay thanks
+│   │   ├── __init__.py
+│   │   ├── adapters.py          Multi-provider LLM abstraction
+│   │   └── prompts.py           Prompt templates per doc type
+│   ├── generation/
+│   │   ├── __init__.py
+│   │   ├── orchestrator.py      Pipeline coordinator
+│   │   └── context.py           Context building + feature detection
+│   ├── output/
+│   │   ├── __init__.py
+│   │   ├── assembler.py         File writing + cross-ref resolution
+│   │   └── navigation.py        MkDocs nav builder
+│   └── docs/
+│       ├── README.md            Module documentation
+│       └── IMPROVEMENT_NOTES.md Known limitations + roadmap
+├── project_config.yml           Central config (gitignored)
+├── project_config.yml.template  Config template (committed)
+├── .env                         API keys (gitignored)
+├── .env.template                Secrets template (committed)
+├── requirements.txt             Python dependencies
+├── Makefile                     Command shortcuts
+└── src/docs/                    MkDocs site
+    ├── mkdocs.yml
+    ├── css/extra_css.css
+    ├── templates/               READ-ONLY reference templates (committed)
+    │   └── reference_docs/      v1 template examples for LLM prompts
+    └── docs/                    Generated output (gitignored except index.md)
 ```
 
----
+### Template vs. Generated Output
 
-## Generated Documentation Structure
+| Folder                                 | Purpose                                                                   |       Git Tracked?       |
+| -------------------------------------- | ------------------------------------------------------------------------- | :----------------------: |
+| `src/docs/templates/reference_docs/` | Read-only v1 reference templates used as few-shot examples in LLM prompts |           Yes           |
+| `src/docs/docs/`                     | Generated documentation output (recreated each run)                       | No (except `index.md`) |
 
-The tool generates documentation with 8 standardized sections:
-
-1. **Feature Overview** - Purpose, business motivation, stakeholders
-2. **Business Implementation** - Business rules, use cases, sequence diagrams
-3. **Technical Implementation** - API endpoints, classes, architecture
-4. **Validation & Error Handling** - Input validation, error scenarios
-5. **Security & Access Control** - Authentication, authorization
-6. **Testing Strategy** - Unit, integration, acceptance tests
-7. **Deployment Considerations** - Infrastructure, feature flags
-8. **References** - Links to source files
-
----
+This separation ensures that `make generate` never destroys the reference templates.
 
 ## Troubleshooting
 
-### "Address already in use" error
-
-```bash
-# Kill the existing server and restart
-make kill
-make serve
-
-# Or use restart (does both)
-make restart
-```
-
-### "Configuration file not found" error
-
-```bash
-# Copy the template
-cp config.env.template .env
-
-# Or if you prefer config.env
-cp config.env.template config.env
-```
-
-### "API key not configured" error
-
-Edit your `.env` file and add your API key:
-```
-OPENAI_API_KEY=sk-your-actual-key-here
-```
-
-### "Module not found" error
-
-```bash
-# Make sure you're in the virtual environment
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-# Or: make install
-```
-
-### MkDocs not showing content
-
-```bash
-# Make sure documentation was generated
-make generate
-
-# Check if files exist in docs/ folder
-ls docs/
-```
-
-### Link warnings in MkDocs
-
-Warnings like `link './Ordering.API/Apis/OrdersApi.cs' not found` are **harmless**. 
-These are links to source code files which don't exist in the docs folder. 
-The documentation will still work correctly.
-
----
-
-## Development
-
-### Running Tests
-
-```bash
-make test
-```
-
-### Dry Run Mode
-
-Test without making API calls:
-
-```bash
-make dry-run API=catalog
-# Or: python -m doc_generator.main --api catalog --dry-run
-```
-
-### Clean Generated Files
-
-```bash
-make clean       # Clean generated docs only
-make clean-all   # Clean everything including venv
-```
-
----
-
-## License
-
-This project is for internal use.
-
----
-
-*Generated documentation is stored in `local_dev/generated_docs/` and copied to `docs/` for viewing.*
+| Issue                              | Solution                                                                           |
+| ---------------------------------- | ---------------------------------------------------------------------------------- |
+| `Config file not found`          | Run `cp project_config.yml.template project_config.yml`                          |
+| `OPENAI_API_KEY is not set`      | Add your key to `.env`                                                           |
+| `API 'xyz' not found`            | Check the `apis` section in `project_config.yml`                               |
+| Mermaid diagrams show syntax error | Check MkDocs dev console; update `template_examples` with correct reference docs |
+| Import errors                      | Run `make setup` and `source venv/bin/activate`                                |

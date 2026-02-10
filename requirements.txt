@@ -1,29 +1,19 @@
-# ============================================
-# AUTOMATED DOCUMENTATION GENERATOR
-# Python Dependencies
-# ============================================
+# Documentation Generator - Python Dependencies
+# Install: pip install -r requirements.txt
 
-# --------------------------------------------
-# LLM Providers
-# --------------------------------------------
+# --- LLM Providers ---
 openai>=1.12.0
 anthropic>=0.18.0
 
-# --------------------------------------------
-# Configuration
-# --------------------------------------------
+# --- Configuration ---
 python-dotenv>=1.0.0
+pyyaml>=6.0
 
-# --------------------------------------------
-# Documentation
-# --------------------------------------------
+# --- MkDocs ---
 mkdocs>=1.5.3
 mkdocs-material>=9.5.0
 mkdocs-mermaid2-plugin>=1.1.1
 pymdown-extensions>=10.7
 
-# --------------------------------------------
-# Utilities
-# --------------------------------------------
-pathlib>=1.0.1
-rich>=13.7.0           # For beautiful console output
+# --- CLI ---
+rich>=13.7.0
