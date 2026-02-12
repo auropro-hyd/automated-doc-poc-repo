@@ -22,7 +22,13 @@ markdown_extensions:
 - pymdownx.details
 nav:
 - Home: index.md
+- Basket.API:
+  - Overview: basket-api.md
+  - Extensions: Basket.API/Extensions.md
+  - Integration Event Handlers: Basket.API/IntegrationEventHandlers.md
+  - Models: Basket.API/Models.md
 - Catalog.API:
+  - Overview: catalog-api.md
   - Catalog Api:
     - Catalog Creation: Catalog.API/CatalogApi/CatalogCreation.md
     - Catalog Deletion: Catalog.API/CatalogApi/CatalogDeletion.md
@@ -31,6 +37,26 @@ nav:
   - Extensions: Catalog.API/Extensions.md
   - Integration Event Handlers: Catalog.API/IntegrationEventHandlers.md
   - Models: Catalog.API/Models.md
+- Identity.API:
+  - Overview: identity-api.md
+  - Account Controller:
+    - Account Controller: Identity.API/AccountController/AccountController.md
+  - Consent Controller:
+    - Consent Creation: Identity.API/ConsentController/ConsentCreation.md
+    - Consent Retrieval: Identity.API/ConsentController/ConsentRetrieval.md
+  - Device Controller:
+    - Device Creation: Identity.API/DeviceController/DeviceCreation.md
+    - Device Retrieval: Identity.API/DeviceController/DeviceRetrieval.md
+  - Diagnostics Controller:
+    - Diagnostics Controller: Identity.API/DiagnosticsController/DiagnosticsController.md
+  - External Controller:
+    - External Controller: Identity.API/ExternalController/ExternalController.md
+  - Grants Controller:
+    - Grants Controller: Identity.API/GrantsController/GrantsController.md
+  - Home Controller:
+    - Home Controller: Identity.API/HomeController/HomeController.md
+  - Extensions: Identity.API/Extensions.md
+  - Models: Identity.API/Models.md
 - Ordering.API:
   - Orders Api:
     - Order Cancellation: Ordering.API/OrdersApi/OrderCancellation.md
@@ -50,8 +76,9 @@ nav:
   - Models: Ordering.Domain/Models.md
   - index: Ordering.Domain/index.md
 - Ordering.Infrastructure:
+  - Data Context: Ordering.Infrastructure/DataContext.md
+  - Entity Configurations: Ordering.Infrastructure/EntityConfigurations.md
   - Extensions: Ordering.Infrastructure/Extensions.md
   - Models: Ordering.Infrastructure/Models.md
+  - Repositories: Ordering.Infrastructure/Repositories.md
   - index: Ordering.Infrastructure/index.md
-- catalog api: catalog-api.md
-- ordering api: ordering-api.md

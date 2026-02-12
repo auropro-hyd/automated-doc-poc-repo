@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 from ..config import ConfigLoader
+from .link_resolver import LinkResolver
 from .navigation import NavigationBuilder
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,10 @@ class DocumentAssembler:
 
         # First pass: build the cross-reference map.
         self._build_ref_map(generated)
+
+        # Link resolution: repair broken internal links before writing.
+        resolver = LinkResolver(generated)
+        generated = resolver.resolve_all()
 
         # Second pass: resolve refs and write files.
         written: List[Path] = []

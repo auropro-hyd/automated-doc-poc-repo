@@ -98,6 +98,23 @@ classification_rules:
     doc_file: null
     doc_title: null
 
+  # Infrastructure patterns (must come before the catch-all model rule)
+  - pattern: ".*EntityTypeConfiguration\\.cs$"
+    category: "entity_configuration"
+    doc_file: "EntityConfigurations.md"
+    doc_title: "Entity Configurations"
+
+  - pattern: ".*[a-z]Repository\\.cs$"
+    category: "repository"
+    doc_file: "Repositories.md"
+    doc_title: "Repositories"
+
+  - pattern: ".*Context\\.cs$"
+    category: "db_context"
+    doc_file: "DataContext.md"
+    doc_title: "Data Context"
+
+  # Catch-all for remaining .cs files
   - pattern: ".*\\.cs$"
     category: "model"
     doc_file: "Models.md"

@@ -113,26 +113,55 @@ class NavigationBuilder:
         """Build a hierarchical navigation list from flat file paths.
 
         Design decision: Files are grouped by their top-level directory.
-        Within each group, files are organised into sub-groups based on
-        their directory structure, matching the v1 template pattern.
+        Overview files (e.g., ``ordering-api.md``) are placed INSIDE their
+        corresponding API group as an "Overview" entry, not as a separate
+        top-level tab. The match is based on the filename pattern
+        ``<api-key>-api.md`` -> group ``<Display.Name>``.
         """
         nav: List = [{"Home": "index.md"}]
         groups: Dict[str, List[str]] = defaultdict(list)
+        overview_files: Dict[str, str] = {}  # group_name -> overview path
 
         for path in sorted(file_paths):
             parts = Path(path).parts
             if len(parts) == 1:
-                title = self._title_from_filename(path)
-                nav.append({title: path})
+                # Check if this is an API overview file (e.g., "ordering-api.md")
+                groups_top_level = {p.parts[0] for p in [Path(fp) for fp in file_paths] if len(p.parts) > 1}
+                matched_group = self._match_overview_to_group(path, groups_top_level)
+                if matched_group:
+                    overview_files[matched_group] = path
+                else:
+                    title = self._title_from_filename(path)
+                    nav.append({title: path})
             else:
                 top = parts[0]
                 groups[top].append(path)
 
         for group_name, paths in sorted(groups.items()):
             sub_nav = self._build_group_nav(group_name, paths)
+            # Insert overview as first entry if available.
+            if group_name in overview_files:
+                sub_nav.insert(0, {"Overview": overview_files[group_name]})
             nav.append({group_name: sub_nav})
 
         return nav
+
+    @staticmethod
+    def _match_overview_to_group(filename: str, group_names: set) -> str:
+        """Match an overview file to its API group.
+
+        Design decision: Matches ``ordering-api.md`` to ``Ordering.API``,
+        ``catalog-api.md`` to ``Catalog.API``, etc. by comparing the
+        lowercase prefix before ``-api.md`` against each group name.
+        """
+        stem = Path(filename).stem.lower()  # e.g., "ordering-api"
+        if not stem.endswith("-api"):
+            return ""
+        prefix = stem.replace("-api", "")  # e.g., "ordering"
+        for group in group_names:
+            if group.lower().startswith(prefix):
+                return group
+        return ""
 
     def _build_group_nav(self, group_name: str, paths: List[str]) -> List:
         """Build navigation entries for a directory group."""

@@ -38,11 +38,12 @@ class CodeParser:
     # Namespace declaration
     _RE_NAMESPACE = re.compile(r'namespace\s+([\w.]+)')
 
-    # Type declaration: public/internal/private [modifiers] class/interface/record/enum Name [: bases] {
+    # Type declaration: [access] [modifiers] class/interface/record/enum Name [: bases] {
+    # Access modifier is optional because C# defaults to internal when omitted.
     _RE_TYPE_DECL = re.compile(
-        r'(?P<access>public|internal|private|protected)'
-        r'(?:\s+(?P<modifiers>(?:(?:static|abstract|sealed|partial|readonly)\s+)*))?'
-        r'\s*(?P<kind>class|interface|record|enum)\s+'
+        r'^\s*(?:(?P<access>public|internal|private|protected)\s+)?'
+        r'(?P<modifiers>(?:(?:static|abstract|sealed|partial|readonly)\s+)*)'
+        r'(?P<kind>class|interface|record|enum)\s+'
         r'(?P<name>\w+)'
         r'(?:\s*:\s*(?P<bases>[^{]+?))?'
         r'\s*\{',
@@ -219,7 +220,7 @@ class CodeParser:
             line_number = content[: match.start()].count("\n") + 1
             name = match.group("name")
             kind = match.group("kind")
-            access = match.group("access")
+            access = match.group("access") or "internal"  # C# default
             modifiers_raw = (match.group("modifiers") or "").split()
             bases_raw = match.group("bases") or ""
 

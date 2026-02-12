@@ -26,7 +26,7 @@ The Catalog service manages the product catalog and inventory. It provides funct
 - Inventory tracking
 - Product search with AI capabilities
 
-[View Catalog API Documentation](catalog.md)
+[View Catalog API Documentation](catalog-api.md)
 
 ### 2. Basket API
 The Basket service handles shopping cart operations including:
@@ -35,7 +35,7 @@ The Basket service handles shopping cart operations including:
 - Price calculation
 - Cart checkout process
 
-[View Basket API Documentation](basket.md)
+[View Basket API Documentation](basket-api.md)
 
 ### 3. Ordering API
 The Ordering service manages the complete order lifecycle:
@@ -45,7 +45,7 @@ The Ordering service manages the complete order lifecycle:
 - Order history tracking
 - Shipping coordination
 
-[View Ordering API Documentation](ordering.md)
+[View Ordering API Documentation](ordering-api.md)
 
 ### 4. Identity API
 The Identity service handles:
@@ -54,7 +54,7 @@ The Identity service handles:
 - User profile management
 - Security token management
 
-[View Identity API Documentation](../Identity.API/FeatureDetails.md)
+[View Identity API Documentation](identity-api.md)
 
 ## Supporting Services
 

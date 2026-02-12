@@ -146,7 +146,14 @@ class DocumentationGenerator:
 
         # Generate domain index for dependent libraries
         for dep_proj in dep_projects:
-            index_content = self._generate_domain_index(dep_proj)
+            # Collect the doc files that were actually generated for this project.
+            prefix = f"{dep_proj.name}/"
+            dep_doc_files = [
+                key[len(prefix):]
+                for key in output_files
+                if key.startswith(prefix) and not key.endswith("index.md")
+            ]
+            index_content = self._generate_domain_index(dep_proj, dep_doc_files)
             if index_content:
                 output_files[f"{dep_proj.name}/index.md"] = index_content
 
@@ -280,13 +287,42 @@ class DocumentationGenerator:
         )
         return self._call_llm(prompt)
 
-    def _generate_domain_index(self, project: ProjectInfo) -> Optional[str]:
-        """Generate an index page for a dependent library."""
+    def _generate_domain_index(
+        self,
+        project: ProjectInfo,
+        generated_doc_files: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        """Generate an index page for a dependent library.
+
+        Args:
+            project: Parsed project metadata.
+            generated_doc_files: List of actual doc file basenames generated
+                for this project (e.g., ``["Extensions.md", "Repositories.md"]``).
+                Used to build correct cross-page links in the index.
+        """
         file_list = "\n".join(f"- {fi.relative_path}" for fi in project.files)
         class_list = []
         for fi in project.files:
             for cls in fi.classes:
                 class_list.append(f"- {cls.name} ({cls.kind}) in {fi.relative_path}")
+
+        # Build a doc-file-to-classes mapping so the LLM knows where to link.
+        doc_links_section = ""
+        if generated_doc_files:
+            doc_links_section = "\n## Generated Documentation Files (use these for links):\n"
+            for doc_file in sorted(generated_doc_files):
+                doc_links_section += f"- [{doc_file}](./{doc_file})\n"
+            doc_links_section += (
+                "\nIMPORTANT: Key Components and Classes links MUST use "
+                "relative links like [ClassName](./<DocFile>.md#classname) "
+                "pointing to the actual generated files listed above. "
+                "Do NOT use same-page anchors.\n"
+            )
+
+        doc_tree = f"{project.name}/\n  index.md\n"
+        if generated_doc_files:
+            for df in sorted(generated_doc_files):
+                doc_tree += f"  {df}\n"
 
         prompt = f"""Generate a brief index/overview page for the {project.name} library.
 
@@ -299,21 +335,24 @@ Brief description of this library's purpose.
 ## Documentation Structure
 
 ```text
-{project.name}/
-  index.md
-  (list the doc files that would exist)
-```
+{doc_tree}```
 
 ## Key Components
-(bullet list of main classes with links to their doc sections)
+(bullet list of main classes — each linked to its documentation page using relative links like [ClassName](./DocFile.md#classname))
 
-## Files:
+## Files
+(bullet list of source files)
+
+## Classes
+(bullet list of classes — each linked to its documentation page)
+{doc_links_section}
+## Source Files:
 {file_list}
 
-## Classes:
+## Classes Found:
 {chr(10).join(class_list[:30])}
 
-Generate the index page now:"""
+Generate the index page now. Remember: all links in Key Components and Classes sections must be relative links to the actual generated documentation files listed above, NOT same-page anchors."""
         return self._call_llm(prompt)
 
     # ------------------------------------------------------------------
