@@ -109,23 +109,14 @@ validate-config: ## Validate project_config.yml
 # ============================================================
 
 .PHONY: clean
-clean: ## Remove generated documentation files
-	@echo "Cleaning generated docs..."
-	$(ACTIVATE) && $(PYTHON) -c "\
-		import yaml, shutil; \
-		cfg = yaml.safe_load(open('project_config.yml')); \
-		d = cfg.get('output', {}).get('docs_dir', 'docs'); \
-		print(f'Would clean: {d}')"
+clean: ## Remove generated documentation files (dry-run)
+	@echo "Cleaning generated docs (dry-run)..."
+	@$(ACTIVATE) && $(PYTHON) -m doc_generator.output.clean --dry-run
 	@echo "Run 'make clean-confirm' to actually delete"
 
 .PHONY: clean-confirm
 clean-confirm: ## Actually remove generated docs (destructive)
-	$(ACTIVATE) && $(PYTHON) -c "\
-		import yaml, shutil, os; \
-		cfg = yaml.safe_load(open('project_config.yml')); \
-		d = cfg.get('output', {}).get('docs_dir', 'docs'); \
-		# Safety: only remove .md files we generated, not the whole tree \
-		print(f'Cleaned: {d}')"
+	@$(ACTIVATE) && $(PYTHON) -m doc_generator.output.clean
 
 .PHONY: help
 help: ## Show this help

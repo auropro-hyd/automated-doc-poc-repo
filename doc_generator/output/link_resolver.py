@@ -5,6 +5,10 @@ the actual file inventory or MkDocs anchor slugification. This module
 runs after all docs are generated and before writing to disk. It builds
 a deterministic inventory of files and headings, then repairs broken
 internal links by redirecting to correct targets or stripping invalid links.
+
+It also validates GitHub source URLs (in both markdown links and mermaid
+click directives) against the actual repository filesystem, fixing
+hallucinated paths and placeholder repository URLs.
 """
 
 import logging
@@ -21,6 +25,14 @@ _LINK_RE = re.compile(r'\[([^\]]*)\]\(([^)]+)\)')
 _HEADING_RE = re.compile(r'^##\s+(.+)$', re.MULTILINE)
 # Strip [linktext](url) to get linktext
 _LINK_TEXT_RE = re.compile(r'\[([^\]]+)\]\([^)]+\)')
+# Match mermaid click directives: click NodeName href "URL" or click NodeName "URL"
+_MERMAID_CLICK_RE = re.compile(
+    r'(click\s+\w+\s+(?:href\s+)?")(https?://[^"]+)(")'
+)
+# Match GitHub-style URLs pointing to source files
+_GITHUB_SOURCE_RE = re.compile(
+    r'https?://github\.com/[^/]+/[^/]+/blob/[^/]+/(src/[^#"\s)]+)'
+)
 
 
 def _slugify(text: str) -> str:
@@ -99,15 +111,28 @@ def _resolve_path(from_path: str, target: str) -> str:
 class LinkResolver:
     """Resolves broken internal links in generated documentation."""
 
-    def __init__(self, generated: Dict[str, str]):
+    def __init__(
+        self,
+        generated: Dict[str, str],
+        repo_root: Optional[Path] = None,
+        repo_url: Optional[str] = None,
+    ):
         """Initialise with the generated content dict.
 
         Args:
             generated: Dict mapping relative doc paths to markdown content.
+            repo_root: Absolute path to the repository root. When provided,
+                GitHub source URLs are validated against the filesystem.
+            repo_url: Configured repository URL (e.g.
+                ``https://github.com/org/repo``). Used to fix placeholder
+                URLs like ``github.com/your-repo/``.
         """
         self._generated = generated
+        self._repo_root = repo_root
+        self._repo_url = repo_url
         self._file_to_anchors: Dict[str, List[Tuple[str, str]]] = {}
         self._entity_to_location: Dict[str, Tuple[str, str]] = {}
+        self._source_file_index: Dict[str, str] = {}  # basename -> repo-relative path
 
     def _build_inventory(self) -> None:
         """Build file and entity indexes from all generated content."""
@@ -129,6 +154,177 @@ class LinkResolver:
             "LinkResolver: built inventory for %d files, %d entities",
             len(self._file_to_anchors), len(self._entity_to_location),
         )
+
+    def _build_source_file_index(self) -> None:
+        """Scan the repository for source files and build a basename lookup.
+
+        This enables finding the correct path for a hallucinated filename
+        (e.g., ``UserRepository.cs`` might be at ``src/Identity.API/Data/...``).
+        """
+        self._source_file_index.clear()
+        if not self._repo_root or not self._repo_root.exists():
+            return
+        src_dir = self._repo_root / "src"
+        if not src_dir.exists():
+            return
+        skip = {"bin", "obj", "node_modules", ".vs", "packages", "wwwroot"}
+        for path in src_dir.rglob("*.cs"):
+            if any(part in skip for part in path.parts):
+                continue
+            rel = str(path.relative_to(self._repo_root)).replace("\\", "/")
+            basename = path.name
+            if basename not in self._source_file_index:
+                self._source_file_index[basename] = rel
+        logger.debug(
+            "LinkResolver: indexed %d source files", len(self._source_file_index)
+        )
+
+    def _validate_github_url(self, url: str) -> str:
+        """Validate a GitHub source URL against the actual filesystem.
+
+        Returns the corrected URL, or empty string if the file cannot be found.
+        """
+        if not self._repo_root:
+            return url
+
+        # Try to extract a file path from GitHub blob URLs.
+        m = _GITHUB_SOURCE_RE.search(url)
+        if m:
+            src_path = m.group(1)
+        else:
+            # Try broader pattern: /blob/branch/<any path ending in .cs>
+            m2 = re.search(
+                r'https?://github\.com/[^/]+/[^/]+/blob/[^/]+/([^#"\s)]+\.cs)',
+                url,
+            )
+            if m2:
+                src_path = m2.group(1)
+            else:
+                return url
+
+        # Strip anchor fragment and query for filesystem check.
+        clean_path = src_path.split("#")[0].split("?")[0]
+        full_path = self._repo_root / clean_path
+        if full_path.exists():
+            return url
+
+        # File doesn't exist. Try to find the correct path by basename.
+        basename = Path(clean_path).name
+        correct_rel = self._source_file_index.get(basename)
+        if correct_rel:
+            repo_url = self._repo_url or self._extract_repo_url(url)
+            branch = self._extract_branch(url)
+            anchor = ""
+            if "#" in src_path:
+                anchor = "#" + src_path.split("#", 1)[1]
+            return f"{repo_url}/blob/{branch}/{correct_rel}{anchor}"
+
+        logger.debug("Cannot find source file for: %s", src_path)
+        return ""
+
+    def _fix_placeholder_url(self, url: str) -> str:
+        """Replace placeholder repository URLs with the configured one."""
+        if not self._repo_url:
+            return url
+        placeholder_re = re.compile(
+            r'https?://github\.com/(?:your-repo(?:-link)?|OWNER/REPO)/[^/]+'
+        )
+        if placeholder_re.search(url):
+            m = re.match(
+                r'https?://github\.com/[^/]+/[^/]+/(.*)', url
+            )
+            if m:
+                return f"{self._repo_url}/{m.group(1)}"
+        return url
+
+    @staticmethod
+    def _extract_repo_url(url: str) -> str:
+        """Extract the repo base URL from a full GitHub URL."""
+        m = re.match(r'(https?://github\.com/[^/]+/[^/]+)', url)
+        return m.group(1) if m else ""
+
+    @staticmethod
+    def _extract_branch(url: str) -> str:
+        """Extract the branch name from a GitHub blob URL."""
+        m = re.match(r'https?://github\.com/[^/]+/[^/]+/blob/([^/]+)', url)
+        return m.group(1) if m else "main"
+
+    def _fix_github_urls_in_content(self, content: str) -> str:
+        """Fix hallucinated GitHub URLs in both markdown and mermaid blocks."""
+        # Fix placeholder URLs (your-repo, your-repo-link) by rebuilding
+        # the entire URL with the correct repo base and validated path.
+        if self._repo_url:
+            def _fix_placeholder(m: re.Match) -> str:
+                full_url = m.group(0)
+                blob_match = re.search(r'/blob/([^/]+)/(.*)', full_url)
+                if blob_match:
+                    branch = blob_match.group(1)
+                    file_path = blob_match.group(2)
+                    rebuilt = f"{self._repo_url}/blob/{branch}/{file_path}"
+                    return rebuilt
+                # Simple format: github.com/your-repo/FileName.cs
+                basename_match = re.search(r'/([^/]+\.cs(?:#.*)?)$', full_url)
+                if basename_match:
+                    raw = basename_match.group(1)
+                    fname = raw.split("#")[0]
+                    anchor = "#" + raw.split("#", 1)[1] if "#" in raw else ""
+                    rel = self._source_file_index.get(fname)
+                    if rel:
+                        return f"{self._repo_url}/blob/main/{rel}{anchor}"
+                    # File truly doesn't exist; mark for removal.
+                    return "__INVALID_PLACEHOLDER__"
+                return full_url
+
+            content = re.sub(
+                r'https?://github\.com/your-repo(?:-link)?/[^\s")\]]+',
+                _fix_placeholder,
+                content,
+            )
+
+        # Fix mermaid click directives with invalid source URLs.
+        def _fix_mermaid_click(m: re.Match) -> str:
+            prefix, url, suffix = m.group(1), m.group(2), m.group(3)
+            if "__INVALID_PLACEHOLDER__" in url:
+                return f"    %% Removed: invalid source link"
+            fixed = self._validate_github_url(url)
+            if not fixed:
+                return f"    %% Removed: invalid source link"
+            return f"{prefix}{fixed}{suffix}"
+
+        content = _MERMAID_CLICK_RE.sub(_fix_mermaid_click, content)
+
+        # Also catch any remaining __INVALID_PLACEHOLDER__ in mermaid
+        # click lines that didn't match the regex above.
+        content = re.sub(
+            r'^\s*click\s+\w+[^\n]*__INVALID_PLACEHOLDER__[^\n]*$',
+            lambda m: "    %% Removed: invalid source link",
+            content,
+            flags=re.MULTILINE,
+        )
+
+        # Fix markdown links pointing to GitHub source files.
+        def _fix_md_github_link(m: re.Match) -> str:
+            link_text, target = m.group(1), m.group(2)
+            if "__INVALID_PLACEHOLDER__" in target:
+                return link_text
+            if not _GITHUB_SOURCE_RE.search(target):
+                # Also check for broader github blob URLs.
+                if not re.search(
+                    r'https?://github\.com/[^/]+/[^/]+/blob/', target
+                ):
+                    return m.group(0)
+            fixed = self._validate_github_url(target)
+            if not fixed:
+                return link_text
+            if fixed != target:
+                return f"[{link_text}]({fixed})"
+            return m.group(0)
+
+        content = _LINK_RE.sub(_fix_md_github_link, content)
+
+        # Clean up any remaining placeholder markers.
+        content = content.replace("__INVALID_PLACEHOLDER__", "")
+        return content
 
     def _normalize_path_for_lookup(self, path: str) -> Optional[str]:
         """Check if path exists in generated files, with normalization."""
@@ -281,9 +477,15 @@ class LinkResolver:
             Updated dict with repaired content.
         """
         self._build_inventory()
+        self._build_source_file_index()
+
         result = {}
         for rel_path, content in self._generated.items():
-            result[rel_path] = self._process_content(content, rel_path)
+            # Fix GitHub source URLs (markdown + mermaid) first.
+            content = self._fix_github_urls_in_content(content)
+            # Then fix internal doc cross-links.
+            content = self._process_content(content, rel_path)
+            result[rel_path] = content
         return result
 
 

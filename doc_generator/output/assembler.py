@@ -101,7 +101,11 @@ class DocumentAssembler:
         self._build_ref_map(generated)
 
         # Link resolution: repair broken internal links before writing.
-        resolver = LinkResolver(generated)
+        resolver = LinkResolver(
+            generated,
+            repo_root=self.config.project_root,
+            repo_url=self.config.repo_url,
+        )
         generated = resolver.resolve_all()
 
         # Second pass: resolve refs and write files.

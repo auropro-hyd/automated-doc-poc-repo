@@ -27,6 +27,7 @@ nav:
   - Extensions: Basket.API/Extensions.md
   - Integration Event Handlers: Basket.API/IntegrationEventHandlers.md
   - Models: Basket.API/Models.md
+  - Repositories: Basket.API/Repositories.md
 - Catalog.API:
   - Overview: catalog-api.md
   - Catalog Api:
@@ -34,6 +35,8 @@ nav:
     - Catalog Deletion: Catalog.API/CatalogApi/CatalogDeletion.md
     - Catalog Retrieval: Catalog.API/CatalogApi/CatalogRetrieval.md
     - Catalog Update: Catalog.API/CatalogApi/CatalogUpdate.md
+  - Data Context: Catalog.API/DataContext.md
+  - Entity Configurations: Catalog.API/EntityConfigurations.md
   - Extensions: Catalog.API/Extensions.md
   - Integration Event Handlers: Catalog.API/IntegrationEventHandlers.md
   - Models: Catalog.API/Models.md
@@ -55,6 +58,7 @@ nav:
     - Grants Controller: Identity.API/GrantsController/GrantsController.md
   - Home Controller:
     - Home Controller: Identity.API/HomeController/HomeController.md
+  - Data Context: Identity.API/DataContext.md
   - Extensions: Identity.API/Extensions.md
   - Models: Identity.API/Models.md
 - Ordering.API:
@@ -76,6 +80,7 @@ nav:
   - Models: Ordering.Domain/Models.md
   - index: Ordering.Domain/index.md
 - Ordering.Infrastructure:
+  - Overview: ordering-api.md
   - Data Context: Ordering.Infrastructure/DataContext.md
   - Entity Configurations: Ordering.Infrastructure/EntityConfigurations.md
   - Extensions: Ordering.Infrastructure/Extensions.md
