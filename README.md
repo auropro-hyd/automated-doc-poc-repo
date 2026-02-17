@@ -30,8 +30,10 @@ llm/
         │
         ▼
 output/
+  link_resolver.py          Validates/fixes links and GitHub source URLs
   assembler.py              Writes markdown, resolves cross-references
   navigation.py             Merges into mkdocs.yml nav (preserves other APIs)
+  clean.py                  Removes previously generated files
         │
         ▼
 src/docs/docs/              Generated MkDocs-ready documentation
@@ -44,7 +46,7 @@ src/docs/templates/         Read-only reference templates (never overwritten)
 
 ```bash
 # Clone and enter the repo
-git clone <repo-url>
+git clone https://github.com/your-org/your-repo.git
 cd automated-doc-poc-repo
 
 # Create virtual environment and install dependencies
@@ -153,6 +155,8 @@ Set `repository.source_url_format`:
 | `make build`                | Build static site                         |
 | `make kill`                 | Stop MkDocs server                        |
 | `make validate-config`      | Validate project_config.yml               |
+| `make clean`                | Show what generated files would be deleted |
+| `make clean-confirm`        | Actually delete all generated doc files    |
 | `make help`                 | Show all commands                         |
 
 ## Project Structure
@@ -170,7 +174,6 @@ automated-doc-poc-repo/
 │   │   ├── parser.py            Regex-based source code extraction
 │   │   └── classifier.py        File classification + source URL builder
 │   ├── llm/
-okay thanks
 │   │   ├── __init__.py
 │   │   ├── adapters.py          Multi-provider LLM abstraction
 │   │   └── prompts.py           Prompt templates per doc type
@@ -181,7 +184,9 @@ okay thanks
 │   ├── output/
 │   │   ├── __init__.py
 │   │   ├── assembler.py         File writing + cross-ref resolution
-│   │   └── navigation.py        MkDocs nav builder
+│   │   ├── link_resolver.py     Link validation + GitHub URL fixing
+│   │   ├── navigation.py        MkDocs nav builder
+│   │   └── clean.py             Generated file cleanup utility
 │   └── docs/
 │       ├── README.md            Module documentation
 │       └── IMPROVEMENT_NOTES.md Known limitations + roadmap
@@ -208,6 +213,26 @@ okay thanks
 
 This separation ensures that `make generate` never destroys the reference templates.
 
+## Post-Processing (Automatic)
+
+After the LLM generates documentation, the pipeline automatically runs
+post-processing steps before writing files to disk:
+
+- **Internal link resolution** -- Fixes broken cross-page markdown links by
+  building an inventory of all generated files and their headings, then
+  rewriting links to use correct relative paths and MkDocs-compatible anchors.
+- **GitHub source URL validation** -- Validates every GitHub source link
+  (in both markdown and Mermaid `click` directives) against the actual
+  repository filesystem. Hallucinated paths are auto-corrected when the file
+  exists at a different location, or removed when the file does not exist.
+- **Placeholder URL replacement** -- Replaces generic placeholder repository
+  URLs (e.g., `github.com/your-repo/`) with the configured `repository.url`.
+- **`#L<n>` anchor stripping** -- Removes invalid line-number-only anchors
+  that the LLM sometimes generates in markdown links.
+
+No manual intervention is required. These steps are handled by
+`output/link_resolver.py` and run automatically during `make generate`.
+
 ## Troubleshooting
 
 | Issue                              | Solution                                                                           |
@@ -217,3 +242,4 @@ This separation ensures that `make generate` never destroys the reference templa
 | `API 'xyz' not found`            | Check the `apis` section in `project_config.yml`                               |
 | Mermaid diagrams show syntax error | Check MkDocs dev console; update `template_examples` with correct reference docs |
 | Import errors                      | Run `make setup` and `source venv/bin/activate`                                |
+| Links point to wrong GitHub paths  | Re-run `make regenerate API=<key>` to trigger the link resolver                  |

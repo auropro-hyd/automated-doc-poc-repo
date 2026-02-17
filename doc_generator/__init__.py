@@ -17,5 +17,4 @@ Package structure::
     └── docs/               Package documentation
 """
 
-__version__ = "2.0.0"
-__author__ = "Uday Singh"
+__version__ = "2.2.0"

@@ -20,13 +20,15 @@ doc_generator/
 │   └── classifier.py        Config-driven file classification + URL builder
 ├── llm/
 │   ├── adapters.py          Multi-provider LLM abstraction (OpenAI/Claude/Azure)
-│   └── prompts.py           7 prompt template functions + category mapping
+│   └── prompts.py           Prompt template functions + category mapping
 ├── generation/
 │   ├── orchestrator.py      Pipeline coordinator (parse → classify → generate)
 │   └── context.py           Context builders, file grouping, feature detection
 ├── output/
 │   ├── assembler.py         File writing, cross-reference resolution
-│   └── navigation.py        MkDocs nav tree builder
+│   ├── link_resolver.py     Post-generation link validation + GitHub URL fixing
+│   ├── navigation.py        MkDocs nav tree builder
+│   └── clean.py             Generated file cleanup utility
 └── docs/
     ├── README.md             This file
     └── IMPROVEMENT_NOTES.md  Known limitations and roadmap
@@ -56,8 +58,10 @@ from YAML. Also builds source URLs for GitHub/GitLab/Bitbucket.
 `LLMFactory`. All parameters read from config.
 
 ### `llm/prompts.py`
-Seven prompt template functions (handler, query, feature, aggregate, simple,
-infrastructure, overview) plus the system prompt and category-to-prompt mapping.
+Prompt template functions (handler, query, feature, aggregate, simple,
+infrastructure, overview) plus the system prompt and `CATEGORY_TO_PROMPT`
+mapping. Infrastructure categories (`entity_configuration`, `repository`,
+`db_context`) are mapped to the `infrastructure_doc` prompt type.
 
 ### `generation/orchestrator.py`
 `DocumentationGenerator` -- the main pipeline: parse source, group by category,
@@ -76,6 +80,25 @@ with no LLM interaction.
 `NavigationBuilder` -- generates hierarchical `nav:` in mkdocs.yml from flat
 file paths. **Merges** new API entries into existing nav (so running for
 Ordering then Catalog preserves both). Preserves all non-nav mkdocs settings.
+
+### `output/link_resolver.py`
+`LinkResolver` -- post-generation pass that validates and repairs links in
+generated markdown files:
+- Builds an inventory of all generated files and their headings.
+- Resolves broken internal cross-page links to correct relative paths
+  with MkDocs-compatible anchor slugs.
+- Scans the repository `src/` directory to build a source file index.
+- Validates GitHub source URLs (both markdown links and Mermaid `click`
+  directives) against actual files on disk. Corrects wrong paths or removes
+  links to non-existent files.
+- Replaces placeholder `your-repo` URLs with the configured repository URL.
+- Strips invalid `#L<n>` line-number-only anchors from markdown links.
+
+### `output/clean.py`
+Standalone utility module (runnable via `python -m doc_generator.output.clean`)
+that reads API configuration from `project_config.yml` and removes the
+corresponding generated directories and overview files from the docs output.
+Supports `--dry-run` to preview what would be deleted.
 
 ## CLI Flags
 
