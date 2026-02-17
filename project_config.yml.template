@@ -98,7 +98,10 @@ classification_rules:
     doc_file: null
     doc_title: null
 
-  # Infrastructure patterns (must come before the catch-all model rule)
+  # Infrastructure patterns (must come before the catch-all model rule).
+  # These classify infrastructure-layer files into dedicated doc pages.
+  # The repository pattern uses [a-z] before "Repository" to avoid matching
+  # interface files like IRepository.cs (which should fall to the model rule).
   - pattern: ".*EntityTypeConfiguration\\.cs$"
     category: "entity_configuration"
     doc_file: "EntityConfigurations.md"
@@ -126,14 +129,26 @@ classification_rules:
 feature_detection:
   endpoint_pattern: "\\[(Http(Get|Post|Put|Delete|Patch))\\]|MapGet|MapPost|MapPut|MapDelete"
   # feature_keywords maps method name substrings to feature names.
-  # Customise for your codebase (e.g., add Search, Browse for a Catalog API).
+  # Customise for your codebase -- add keywords that match your endpoint method names.
   feature_keywords:
     Create: "Creation"
     Get: "Retrieval"
     Update: "Update"
     Delete: "Deletion"
+    Cancel: "Cancellation"
+    Ship: "Shipping"
+    CardType: "Card Types"
+    Search: "Search"
+    Browse: "Browse"
+    Filter: "Filtering"
 
 # --- Documentation Output ---
+# Paths are relative to the project root.
+# Examples:
+#   docs_dir: "docs"                  (if mkdocs is at project root)
+#   docs_dir: "src/docs/docs"         (if mkdocs is nested under src/docs/)
+#   mkdocs_config: "mkdocs.yml"       (if mkdocs.yml is at project root)
+#   mkdocs_config: "src/docs/mkdocs.yml"  (if nested)
 output:
   docs_dir: "docs"
   mkdocs_config: "mkdocs.yml"
