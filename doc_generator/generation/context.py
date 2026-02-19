@@ -88,13 +88,22 @@ class ContextBuilder:
         """Combine content of multiple files with headers."""
         parts: List[str] = []
         total = 0
+        included = 0
         for fi in files:
             header = f"\n// FILE: {fi.relative_path}\n"
             if total + len(header) + len(fi.content) > max_chars:
+                skipped = len(files) - included
+                logger.warning(
+                    "Source content cap (%d chars) reached. "
+                    "Skipping %d remaining file(s); classes in those files "
+                    "will not appear in the generated documentation.",
+                    max_chars, skipped,
+                )
                 break
             parts.append(header)
             parts.append(fi.content)
             total += len(header) + len(fi.content)
+            included += 1
         return "".join(parts)
 
     def build_class_metadata(
@@ -154,7 +163,7 @@ class ContextBuilder:
                         )
                         for m in cls.methods:
                             lines.append(f"  Method: {m.signature}")
-        return "\n".join(lines[:50]) if lines else "(no handler context available)"
+        return "\n".join(lines[:100]) if lines else "(no handler context available)"
 
     @staticmethod
     def build_component_summary(projects: List[ProjectInfo]) -> str:

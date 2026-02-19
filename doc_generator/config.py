@@ -218,6 +218,16 @@ class ConfigLoader:
     def llm_retry_delay(self) -> float:
         return float(self._raw.get("llm", {}).get("retry_delay_seconds", 2))
 
+    @property
+    def detail_level(self) -> str:
+        """Detail level for generated docs: summary, standard, or detailed."""
+        return self._raw.get("llm", {}).get("detail_level", "detailed")
+
+    @property
+    def max_classes_per_chunk(self) -> int:
+        """Max classes per LLM call. Groups larger than this are split."""
+        return int(self._raw.get("llm", {}).get("max_classes_per_chunk", 3))
+
     # --- Secrets (from .env) ---
 
     @property

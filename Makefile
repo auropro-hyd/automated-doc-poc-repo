@@ -52,17 +52,13 @@ endif
 
 .PHONY: generate-all
 generate-all: ## Generate docs for ALL APIs in project_config.yml
-	$(ACTIVATE) && $(PYTHON) -c "\
-		import yaml; \
-		cfg = yaml.safe_load(open('project_config.yml')); \
-		apis = list(cfg.get('apis', {}).keys()); \
-		print('Generating for:', ', '.join(apis))" && \
-	$(ACTIVATE) && $(PYTHON) -c "\
-		import yaml, subprocess, sys; \
-		cfg = yaml.safe_load(open('project_config.yml')); \
-		for api in cfg.get('apis', {}): \
-			print(f'\n--- Generating: {api} ---'); \
-			subprocess.run([sys.executable, '-m', '$(MODULE)', '--api', api], check=True)"
+	$(ACTIVATE) && \
+	APIS=$$($(PYTHON) -c "import yaml; print(' '.join(yaml.safe_load(open('project_config.yml')).get('apis',{}).keys()))") && \
+	echo "Generating for: $$APIS" && \
+	for api in $$APIS; do \
+		echo ""; echo "--- Generating: $$api ---"; \
+		$(PYTHON) -m $(MODULE) --api $$api || exit 1; \
+	done
 
 .PHONY: list
 list: ## List available APIs from project_config.yml

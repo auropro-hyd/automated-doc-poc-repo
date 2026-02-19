@@ -9,18 +9,30 @@ names, tokens, or temperatures are hardcoded in this module.
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Tuple
 
 from ..config import ConfigLoader
 
 logger = logging.getLogger(__name__)
+
+_KNOWN_MAX_OUTPUT_TOKENS = {
+    "gpt-4o": 16384,
+    "gpt-4o-mini": 16384,
+    "gpt-4-turbo": 4096,
+    "gpt-3.5-turbo": 4096,
+    "claude-3-5-sonnet": 8192,
+    "claude-3-opus": 4096,
+    "claude-3-haiku": 4096,
+}
 
 
 class BaseLLMAdapter(ABC):
     """Abstract interface for all LLM adapters."""
 
     @abstractmethod
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None
+    ) -> Tuple[str, bool]:
         """Send a prompt and return the generated text.
 
         Args:
@@ -28,7 +40,8 @@ class BaseLLMAdapter(ABC):
             system_prompt: Optional system-level instruction.
 
         Returns:
-            Generated text string.
+            Tuple of (generated_text, was_truncated).
+            ``was_truncated`` is True when the output hit max_tokens.
         """
 
     @abstractmethod
@@ -51,7 +64,9 @@ class OpenAIAdapter(BaseLLMAdapter):
         self._max_tokens = max_tokens
         self._temperature = temperature
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None
+    ) -> Tuple[str, bool]:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -63,7 +78,9 @@ class OpenAIAdapter(BaseLLMAdapter):
             temperature=self._temperature,
             max_tokens=self._max_tokens,
         )
-        return response.choices[0].message.content
+        choice = response.choices[0]
+        truncated = choice.finish_reason == "length"
+        return choice.message.content, truncated
 
     def get_model_name(self) -> str:
         return f"OpenAI {self._model}"
@@ -80,7 +97,9 @@ class ClaudeAdapter(BaseLLMAdapter):
         self._max_tokens = max_tokens
         self._temperature = temperature
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None
+    ) -> Tuple[str, bool]:
         message = self._client.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
@@ -88,7 +107,8 @@ class ClaudeAdapter(BaseLLMAdapter):
             system=system_prompt or "",
             messages=[{"role": "user", "content": prompt}],
         )
-        return message.content[0].text
+        truncated = message.stop_reason == "max_tokens"
+        return message.content[0].text, truncated
 
     def get_model_name(self) -> str:
         return f"Claude {self._model}"
@@ -117,7 +137,9 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
         self._max_tokens = max_tokens
         self._temperature = temperature
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None
+    ) -> Tuple[str, bool]:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -129,7 +151,9 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             temperature=self._temperature,
             max_tokens=self._max_tokens,
         )
-        return response.choices[0].message.content
+        choice = response.choices[0]
+        truncated = choice.finish_reason == "length"
+        return choice.message.content, truncated
 
     def get_model_name(self) -> str:
         return f"Azure OpenAI {self._deployment}"
@@ -161,6 +185,15 @@ class LLMFactory:
         model = config.llm_model
         max_tokens = config.llm_max_tokens
         temperature = config.llm_temperature
+
+        for known_model, limit in _KNOWN_MAX_OUTPUT_TOKENS.items():
+            if known_model in model.lower() and max_tokens > limit:
+                logger.warning(
+                    "max_tokens (%d) exceeds known limit for %s (%d). "
+                    "Output may be silently truncated.",
+                    max_tokens, model, limit,
+                )
+                break
 
         if provider == "openai":
             return OpenAIAdapter(
