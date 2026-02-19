@@ -53,7 +53,13 @@ class DocumentationGenerator:
     def initialise_llm(self) -> None:
         """Create the LLM adapter from configuration."""
         self.llm = LLMFactory.create(self.config)
-        logger.info("LLM initialised: %s", self.llm.get_model_name())
+        logger.info(
+            "LLM initialised: %s | max_tokens=%d | temperature=%.2f | detail_level=%s",
+            self.llm.get_model_name(),
+            self.config.llm_max_tokens,
+            self.config.llm_temperature,
+            self.config.detail_level,
+        )
 
     def generate(self, api_key: str) -> Dict[str, str]:
         """Run the full generation pipeline for a single API.
@@ -179,15 +185,17 @@ class DocumentationGenerator:
         all_projects: List[ProjectInfo],
         source_prefix: str = "",
     ) -> Optional[str]:
-        """Generate documentation for a group of files sharing a category."""
+        """Generate documentation for a group of files sharing a category.
+
+        If the total number of classes exceeds ``max_classes_per_chunk``,
+        the group is split into smaller sub-groups.  Only the first chunk
+        receives the full prompt (which generates the document title);
+        subsequent chunks are instructed to continue without a title to
+        avoid duplicate headers when the results are concatenated.
+        """
         prompt_type = pt.CATEGORY_TO_PROMPT.get(category, "simple_doc")
         template_key = ContextBuilder.template_key_for(prompt_type)
         template_example = self.config.template_example_content(template_key)
-
-        source_code = ContextBuilder.combine_file_content(files)
-        class_metadata = self.ctx.build_class_metadata(
-            files, project_source_prefix=source_prefix
-        )
 
         prompt_fn = {
             "handler_doc": pt.handler_doc_prompt,
@@ -197,14 +205,83 @@ class DocumentationGenerator:
             "infrastructure_doc": pt.infrastructure_doc_prompt,
         }.get(prompt_type, pt.simple_doc_prompt)
 
-        prompt = prompt_fn(
-            doc_title=doc_title,
-            source_code=source_code,
-            class_metadata=class_metadata,
-            template_example=template_example,
+        total_classes = sum(len(fi.classes) for fi in files)
+        max_per_chunk = self.config.max_classes_per_chunk
+
+        if total_classes <= max_per_chunk:
+            source_code = ContextBuilder.combine_file_content(files)
+            class_metadata = self.ctx.build_class_metadata(
+                files, project_source_prefix=source_prefix
+            )
+            prompt = prompt_fn(
+                doc_title=doc_title,
+                source_code=source_code,
+                class_metadata=class_metadata,
+                template_example=template_example,
+            )
+            return self._call_llm(prompt)
+
+        chunks = self._split_files_by_class_count(files, max_per_chunk)
+        logger.info(
+            "Splitting %s into %d chunks (%d classes, max %d per chunk)",
+            doc_file, len(chunks), total_classes, max_per_chunk,
         )
 
-        return self._call_llm(prompt)
+        parts: List[str] = []
+        for idx, chunk_files in enumerate(chunks):
+            source_code = ContextBuilder.combine_file_content(chunk_files)
+            class_metadata = self.ctx.build_class_metadata(
+                chunk_files, project_source_prefix=source_prefix
+            )
+
+            if idx == 0:
+                prompt = prompt_fn(
+                    doc_title=doc_title,
+                    source_code=source_code,
+                    class_metadata=class_metadata,
+                    template_example=template_example,
+                )
+            else:
+                continuation = (
+                    "Continue documenting the following classes for the "
+                    f'same "{doc_title}" document. Do NOT include a document '
+                    "title or preamble. Start directly with the next class "
+                    "section heading (## [ClassName]...).\n\n"
+                )
+                prompt = continuation + prompt_fn(
+                    doc_title=doc_title,
+                    source_code=source_code,
+                    class_metadata=class_metadata,
+                    template_example=template_example,
+                )
+
+            content = self._call_llm(prompt)
+            if content:
+                if idx > 0:
+                    parts.append("\n---\n")
+                parts.append(content)
+
+        return "\n".join(parts) if parts else None
+
+    @staticmethod
+    def _split_files_by_class_count(
+        files: List[FileInfo], max_classes: int
+    ) -> List[List[FileInfo]]:
+        """Partition *files* into sub-lists so each has at most *max_classes* classes."""
+        chunks: List[List[FileInfo]] = []
+        current: List[FileInfo] = []
+        current_count = 0
+        for fi in files:
+            n = len(fi.classes) or 1
+            if current and current_count + n > max_classes:
+                chunks.append(current)
+                current = []
+                current_count = 0
+            current.append(fi)
+            current_count += n
+        if current:
+            chunks.append(current)
+        return chunks
 
     def _generate_feature_docs(
         self,
@@ -324,13 +401,14 @@ class DocumentationGenerator:
             for df in sorted(generated_doc_files):
                 doc_tree += f"  {df}\n"
 
-        prompt = f"""Generate a brief index/overview page for the {project.name} library.
+        prompt = f"""Generate a detailed index/overview page for the {project.name} library.
 
 ## Output Structure:
 
 # {project.name} Overview
 
-Brief description of this library's purpose.
+Detailed description of this library's purpose, its role in the overall architecture,
+and the key responsibilities it handles.
 
 ## Documentation Structure
 
@@ -367,17 +445,23 @@ Generate the index page now. Remember: all links in Key Components and Classes s
         """
         max_attempts = self.config.llm_retry_attempts
         delay = self.config.llm_retry_delay
+        system_prompt = pt.get_system_prompt(self.config.detail_level)
 
         for attempt in range(1, max_attempts + 1):
             try:
-                response = self.llm.generate(prompt, pt.SYSTEM_PROMPT)
-                if response.startswith("```markdown"):
-                    response = response[len("```markdown"):].strip()
-                if response.startswith("```"):
-                    response = response[3:].strip()
-                if response.endswith("```"):
-                    response = response[:-3].strip()
-                return response
+                text, truncated = self.llm.generate(prompt, system_prompt)
+                if truncated:
+                    logger.warning(
+                        "LLM output was truncated (hit max_tokens). "
+                        "The generated content may be incomplete."
+                    )
+                if text.startswith("```markdown"):
+                    text = text[len("```markdown"):].strip()
+                if text.startswith("```"):
+                    text = text[3:].strip()
+                if text.endswith("```"):
+                    text = text[:-3].strip()
+                return text
             except Exception as exc:
                 logger.warning(
                     "LLM call failed (attempt %d/%d): %s",
