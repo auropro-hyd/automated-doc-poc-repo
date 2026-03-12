@@ -12,6 +12,7 @@ all repo-specific knowledge comes from the YAML config.
 """
 
 import logging
+import re
 import time
 from typing import Dict, List, Optional
 
@@ -20,6 +21,7 @@ from ..models import FileInfo, ProjectInfo
 from ..parsing import CodeParser
 from ..llm import LLMFactory, BaseLLMAdapter
 from ..llm import prompts as pt
+from ..output.mermaid_sanitizer import sanitize_mermaid_blocks
 from .context import ContextBuilder
 
 logger = logging.getLogger(__name__)
@@ -143,16 +145,8 @@ class DocumentationGenerator:
                 if content:
                     output_files[f"{dep_proj.name}/{dfile}"] = content
 
-        # Generate overview page
-        overview = self._generate_overview(display_name, all_projects)
-        if overview:
-            api_folder = self.ctx.api_folder_name(source_projects)
-            overview_name = api_folder.lower().replace(".", "-") + ".md"
-            output_files[overview_name] = overview
-
         # Generate domain index for dependent libraries
         for dep_proj in dep_projects:
-            # Collect the doc files that were actually generated for this project.
             prefix = f"{dep_proj.name}/"
             dep_doc_files = [
                 key[len(prefix):]
@@ -162,6 +156,18 @@ class DocumentationGenerator:
             index_content = self._generate_domain_index(dep_proj, dep_doc_files)
             if index_content:
                 output_files[f"{dep_proj.name}/index.md"] = index_content
+
+        # Generate overview page LAST so we can reference all generated pages.
+        api_folder = self.ctx.api_folder_name(source_projects)
+        controller_pages = self._build_controller_pages_summary(
+            output_files, api_folder
+        )
+        overview = self._generate_overview(
+            display_name, all_projects, controller_pages=controller_pages
+        )
+        if overview:
+            overview_name = api_folder.lower().replace(".", "-") + ".md"
+            output_files[overview_name] = overview
 
         logger.info("Generated %d documentation files", len(output_files))
         return output_files
@@ -349,9 +355,19 @@ class DocumentationGenerator:
         return endpoint_file.filename.replace(".cs", "")
 
     def _generate_overview(
-        self, api_name: str, all_projects: List[ProjectInfo]
+        self,
+        api_name: str,
+        all_projects: List[ProjectInfo],
+        controller_pages: str = "",
     ) -> Optional[str]:
-        """Generate the API-level overview page."""
+        """Generate the API-level overview page.
+
+        Args:
+            api_name: Human-readable API display name.
+            all_projects: All parsed projects (source + dependencies).
+            controller_pages: Pre-built summary of generated controller/feature
+                page paths so the LLM can create correct navigation links.
+        """
         template_example = self.config.template_example_content("overview")
         component_summary = ContextBuilder.build_component_summary(all_projects)
         source_code = self.parser.get_combined_content(all_projects, max_chars=50_000)
@@ -361,8 +377,23 @@ class DocumentationGenerator:
             component_summary=component_summary,
             source_code=source_code,
             template_example=template_example,
+            controller_pages=controller_pages,
         )
         return self._call_llm(prompt)
+
+    @staticmethod
+    def _build_controller_pages_summary(
+        output_files: Dict[str, str], api_folder: str
+    ) -> str:
+        """Build a summary of generated feature/component pages for the overview prompt."""
+        lines: List[str] = []
+        for path in sorted(output_files.keys()):
+            if not path.startswith(api_folder + "/"):
+                continue
+            rel = path[len(api_folder) + 1:]
+            title = rel.replace("/", " > ").replace(".md", "").replace("-", " ")
+            lines.append(f"- {title}: {rel}")
+        return "\n".join(lines) if lines else "(no controller pages generated yet)"
 
     def _generate_domain_index(
         self,
@@ -438,7 +469,12 @@ Generate the index page now. Remember: all links in Key Components and Classes s
     # ------------------------------------------------------------------
 
     def _call_llm(self, prompt: str) -> Optional[str]:
-        """Send a prompt to the LLM with retry logic.
+        """Send a prompt to the LLM with retry logic and post-processing.
+
+        Post-processing pipeline (deterministic, runs after every LLM call):
+          1. Strip markdown wrapper fences
+          2. Remove raw source code blocks and ``## Source Code`` sections
+          3. Sanitize mermaid diagram syntax
 
         Returns:
             Generated text, or None on failure after all retries.
@@ -461,6 +497,11 @@ Generate the index page now. Remember: all links in Key Components and Classes s
                     text = text[3:].strip()
                 if text.endswith("```"):
                     text = text[:-3].strip()
+
+                text = self._strip_source_code(text)
+                text = sanitize_mermaid_blocks(
+                    text, repo_url=self.config.repo_url
+                )
                 return text
             except Exception as exc:
                 logger.warning(
@@ -472,3 +513,36 @@ Generate the index page now. Remember: all links in Key Components and Classes s
 
         logger.error("LLM call failed after %d attempts", max_attempts)
         return None
+
+    @staticmethod
+    def _strip_source_code(text: str) -> str:
+        """Remove raw source code from LLM output.
+
+        1. Strip ``## Source Code`` sections (everything from that heading
+           to the next ``## `` heading or end of file).
+        2. Strip fenced code blocks tagged as C# (```csharp, ```cs, ```c#).
+        3. Strip unclosed C# fences (truncated LLM output).
+        4. Leave ```json, ```mermaid, ```text blocks intact.
+        """
+        text = re.sub(
+            r"^##\s+Source\s+Code\b.*?(?=^##\s|\Z)",
+            "",
+            text,
+            flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
+        )
+        text = re.sub(
+            r"```(?:csharp|cs|c#)\s*\n.*?```",
+            "",
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        # Also catch unclosed C# fences (truncated output) -- strip from
+        # the opening fence to the next markdown heading or ``---`` separator.
+        text = re.sub(
+            r"```(?:csharp|cs|c#)\s*\n.*?(?=^---|\Z)",
+            "",
+            text,
+            flags=re.DOTALL | re.IGNORECASE | re.MULTILINE,
+        )
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
