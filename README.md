@@ -2,8 +2,8 @@
 
 A config-driven tool that automatically generates comprehensive, structured
 documentation for .NET applications using LLM analysis. Produces
-MkDocs-compatible markdown with Mermaid diagrams, clickable source links,
-cross-page navigation, and hierarchical site structure.
+MkDocs-compatible Markdown with Mermaid diagrams (sequence, class, flowchart),
+clickable source links, cross-page navigation, and hierarchical site structure.
 
 ## Architecture
 
@@ -30,6 +30,7 @@ llm/
         │
         ▼
 output/
+  mermaid_sanitizer.py      Validates and auto-repairs Mermaid diagram syntax
   link_resolver.py          Validates/fixes links and GitHub source URLs
   assembler.py              Writes markdown, resolves cross-references
   navigation.py             Merges into mkdocs.yml nav (preserves other APIs)
@@ -46,7 +47,7 @@ src/docs/templates/         Read-only reference templates (never overwritten)
 
 ```bash
 # Clone and enter the repo
-git clone https://github.com/your-org/your-repo.git
+git clone <repository-url>
 cd automated-doc-poc-repo
 
 # Create virtual environment and install dependencies
@@ -185,6 +186,7 @@ automated-doc-poc-repo/
 │   │   ├── __init__.py
 │   │   ├── assembler.py         File writing + cross-ref resolution
 │   │   ├── link_resolver.py     Link validation + GitHub URL fixing
+│   │   ├── mermaid_sanitizer.py Mermaid diagram syntax validation + auto-repair
 │   │   ├── navigation.py        MkDocs nav builder
 │   │   └── clean.py             Generated file cleanup utility
 │   └── docs/
@@ -204,6 +206,43 @@ automated-doc-poc-repo/
     └── docs/                    Generated output (gitignored except index.md)
 ```
 
+### Generated Output Structure
+
+For each API, the generator produces:
+
+```
+src/docs/docs/
+├── ordering-api.md                  API-level overview page
+├── Ordering.API/
+│   ├── Commands.md                  Command handlers documentation
+│   ├── DomainEventHandling.md       Domain event handler documentation
+│   ├── IntegrationEventHandlers.md  Integration event handler documentation
+│   ├── Models.md                    Models and DTOs
+│   ├── Queries.md                   Query classes
+│   ├── Validations.md               Validators
+│   └── OrdersApi/                   Feature pages (per controller)
+│       ├── OrderCreation.md         Class diagram, sequence diagram, methods
+│       ├── OrderCancellation.md       with call graphs, implementation flows,
+│       ├── OrderShipping.md           framework + project dependencies,
+│       ├── OrderRetrieval.md          exception handling, and security
+│       └── OrderCardTypesManagement.md
+├── Ordering.Domain/
+│   ├── Aggregate.md                 Domain aggregates with property tables
+│   └── Models.md                    Domain models and value objects
+└── Ordering.Infrastructure/
+    ├── DataContext.md               EF Core DbContext documentation
+    ├── EntityConfigurations.md      Entity type configurations
+    ├── Extensions.md                Extension methods
+    └── Repositories.md              Repository implementations
+```
+
+Each feature page includes:
+- Overview and class diagram
+- Sequence diagram with numbered steps and legend
+- Methods with call graphs (clickable nodes) and implementation flows
+- Dependencies split into Framework and Project (with navigable links)
+- Exception handling and security considerations
+
 ### Template vs. Generated Output
 
 | Folder                                 | Purpose                                                                   |       Git Tracked?       |
@@ -218,28 +257,37 @@ This separation ensures that `make generate` never destroys the reference templa
 After the LLM generates documentation, the pipeline automatically runs
 post-processing steps before writing files to disk:
 
+- **Source code stripping** -- Removes any raw source code blocks
+  (`csharp`/`cs` fences) and "Source Code" sections that the LLM may
+  produce despite prompt instructions. Handles both paired and unclosed
+  code fences.
+- **Mermaid diagram sanitization** -- Validates and auto-repairs common
+  Mermaid syntax issues including: `graph` to `flowchart` conversion,
+  unbalanced braces, missing `end` keywords in sequence diagrams, empty
+  class diagram braces, unclosed mermaid fences, and broken `link`
+  directives. Handled by `output/mermaid_sanitizer.py`.
 - **Internal link resolution** -- Fixes broken cross-page markdown links by
   building an inventory of all generated files and their headings, then
   rewriting links to use correct relative paths and MkDocs-compatible anchors.
+  Includes path alias expansion for commonly hallucinated file paths.
 - **GitHub source URL validation** -- Validates every GitHub source link
   (in both markdown and Mermaid `click` directives) against the actual
   repository filesystem. Hallucinated paths are auto-corrected when the file
   exists at a different location, or removed when the file does not exist.
 - **Placeholder URL replacement** -- Replaces generic placeholder repository
   URLs (e.g., `github.com/your-repo/`) with the configured `repository.url`.
-- **`#L<n>` anchor stripping** -- Removes invalid line-number-only anchors
-  that the LLM sometimes generates in markdown links.
 
-No manual intervention is required. These steps are handled by
-`output/link_resolver.py` and run automatically during `make generate`.
+No manual intervention is required. These steps run automatically during
+`make generate`.
 
 ## Troubleshooting
 
-| Issue                              | Solution                                                                           |
-| ---------------------------------- | ---------------------------------------------------------------------------------- |
-| `Config file not found`          | Run `cp project_config.yml.template project_config.yml`                          |
-| `OPENAI_API_KEY is not set`      | Add your key to `.env`                                                           |
-| `API 'xyz' not found`            | Check the `apis` section in `project_config.yml`                               |
-| Mermaid diagrams show syntax error | Check MkDocs dev console; update `template_examples` with correct reference docs |
-| Import errors                      | Run `make setup` and `source venv/bin/activate`                                |
-| Links point to wrong GitHub paths  | Re-run `make regenerate API=<key>` to trigger the link resolver                  |
+| Issue                              | Solution                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| `Config file not found`          | Run `cp project_config.yml.template project_config.yml`                                  |
+| `OPENAI_API_KEY is not set`      | Add your key to `.env`                                                                   |
+| `API 'xyz' not found`            | Check the `apis` section in `project_config.yml`                                       |
+| Mermaid diagrams show syntax error | Most syntax errors are auto-repaired. Re-run `make regenerate API=<key>` to re-sanitize |
+| Import errors                      | Run `make setup` and `source venv/bin/activate`                                        |
+| Links point to wrong GitHub paths  | Re-run `make regenerate API=<key>` to trigger the link resolver                          |
+| MkDocs port already in use         | Run `make kill` then `make serve`                                                      |

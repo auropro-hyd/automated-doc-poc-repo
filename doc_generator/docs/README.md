@@ -27,6 +27,7 @@ doc_generator/
 ├── output/
 │   ├── assembler.py         File writing, cross-reference resolution
 │   ├── link_resolver.py     Post-generation link validation + GitHub URL fixing
+│   ├── mermaid_sanitizer.py Mermaid diagram syntax validation + auto-repair
 │   ├── navigation.py        MkDocs nav tree builder
 │   └── clean.py             Generated file cleanup utility
 └── docs/
@@ -81,18 +82,32 @@ with no LLM interaction.
 file paths. **Merges** new API entries into existing nav (so running for
 Ordering then Catalog preserves both). Preserves all non-nav mkdocs settings.
 
+### `output/mermaid_sanitizer.py`
+`sanitize_mermaid_blocks()` -- deterministic post-processing pass that
+validates and auto-repairs common Mermaid syntax issues in LLM-generated
+documentation:
+- Converts `graph` declarations to `flowchart`.
+- Fixes unbalanced braces (ensuring open/close parity).
+- Adds missing `end` keywords for `alt`/`opt`/`rect`/`loop` blocks in
+  sequence diagrams.
+- Repairs class diagram syntax (`class Foo {}` with members outside braces).
+- Closes unclosed mermaid code fences (truncation/chunking artifacts).
+- Comments out broken `link` directives that point to non-existent paths.
+- Strips unsupported `style` directives.
+
 ### `output/link_resolver.py`
 `LinkResolver` -- post-generation pass that validates and repairs links in
 generated markdown files:
 - Builds an inventory of all generated files and their headings.
 - Resolves broken internal cross-page links to correct relative paths
-  with MkDocs-compatible anchor slugs.
+  with MkDocs-compatible anchor slugs. Includes path alias expansion for
+  commonly hallucinated file paths (e.g., `Repositories/OrderRepository.md`
+  to `Repositories.md`).
 - Scans the repository `src/` directory to build a source file index.
 - Validates GitHub source URLs (both markdown links and Mermaid `click`
   directives) against actual files on disk. Corrects wrong paths or removes
   links to non-existent files.
 - Replaces placeholder `your-repo` URLs with the configured repository URL.
-- Strips invalid `#L<n>` line-number-only anchors from markdown links.
 
 ### `output/clean.py`
 Standalone utility module (runnable via `python -m doc_generator.output.clean`)
