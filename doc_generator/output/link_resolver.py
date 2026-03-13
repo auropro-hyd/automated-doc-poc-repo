@@ -250,9 +250,16 @@ class LinkResolver:
         return m.group(1) if m else "main"
 
     def _fix_github_urls_in_content(self, content: str) -> str:
-        """Fix hallucinated GitHub URLs in both markdown and mermaid blocks."""
-        # Fix placeholder URLs (your-repo, your-repo-link) by rebuilding
-        # the entire URL with the correct repo base and validated path.
+        """Fix hallucinated GitHub URLs in both markdown and mermaid blocks.
+
+        Three-pass strategy:
+        1. Replace placeholder URLs (``your-repo``, ``your-repo-link``).
+        2. Detect *any* ``github.com`` URL whose org/repo does NOT match the
+           configured ``repo_url`` and attempt to rebuild it from the source
+           file index, or strip it.
+        3. Validate remaining GitHub blob URLs against the filesystem.
+        """
+        # --- Pass 1: Fix placeholder URLs ---
         if self._repo_url:
             def _fix_placeholder(m: re.Match) -> str:
                 full_url = m.group(0)
@@ -262,7 +269,6 @@ class LinkResolver:
                     file_path = blob_match.group(2)
                     rebuilt = f"{self._repo_url}/blob/{branch}/{file_path}"
                     return rebuilt
-                # Simple format: github.com/your-repo/FileName.cs
                 basename_match = re.search(r'/([^/]+\.cs(?:#.*)?)$', full_url)
                 if basename_match:
                     raw = basename_match.group(1)
@@ -271,7 +277,6 @@ class LinkResolver:
                     rel = self._source_file_index.get(fname)
                     if rel:
                         return f"{self._repo_url}/blob/main/{rel}{anchor}"
-                    # File truly doesn't exist; mark for removal.
                     return "__INVALID_PLACEHOLDER__"
                 return full_url
 
@@ -281,7 +286,35 @@ class LinkResolver:
                 content,
             )
 
-        # Fix mermaid click directives with invalid source URLs.
+        # --- Pass 2: Catch hallucinated org/repo URLs ---
+        if self._repo_url:
+            def _fix_wrong_repo(m: re.Match) -> str:
+                full_url = m.group(0)
+                if full_url.startswith(self._repo_url):
+                    return full_url
+                if "your-repo" in full_url or "__INVALID_PLACEHOLDER__" in full_url:
+                    return full_url
+                basename_match = re.search(r'/([^/]+\.cs(?:#.*)?)$', full_url)
+                if basename_match:
+                    raw = basename_match.group(1)
+                    fname = raw.split("#")[0]
+                    anchor = "#" + raw.split("#", 1)[1] if "#" in raw else ""
+                    rel = self._source_file_index.get(fname)
+                    if rel:
+                        logger.info(
+                            "Fixing hallucinated GitHub URL: %s -> %s",
+                            full_url, f"{self._repo_url}/blob/main/{rel}{anchor}",
+                        )
+                        return f"{self._repo_url}/blob/main/{rel}{anchor}"
+                return "__INVALID_PLACEHOLDER__"
+
+            content = re.sub(
+                r'https?://github\.com/(?!your-repo)[^\s")\]]+',
+                _fix_wrong_repo,
+                content,
+            )
+
+        # --- Pass 3: Fix mermaid click directives ---
         def _fix_mermaid_click(m: re.Match) -> str:
             prefix, url, suffix = m.group(1), m.group(2), m.group(3)
             if "__INVALID_PLACEHOLDER__" in url:
@@ -293,8 +326,6 @@ class LinkResolver:
 
         content = _MERMAID_CLICK_RE.sub(_fix_mermaid_click, content)
 
-        # Also catch any remaining __INVALID_PLACEHOLDER__ in mermaid
-        # click lines that didn't match the regex above.
         content = re.sub(
             r'^\s*click\s+\w+[^\n]*__INVALID_PLACEHOLDER__[^\n]*$',
             lambda m: "    %% Removed: invalid source link",
@@ -302,13 +333,12 @@ class LinkResolver:
             flags=re.MULTILINE,
         )
 
-        # Fix markdown links pointing to GitHub source files.
+        # --- Pass 4: Fix markdown links ---
         def _fix_md_github_link(m: re.Match) -> str:
             link_text, target = m.group(1), m.group(2)
             if "__INVALID_PLACEHOLDER__" in target:
                 return link_text
             if not _GITHUB_SOURCE_RE.search(target):
-                # Also check for broader github blob URLs.
                 if not re.search(
                     r'https?://github\.com/[^/]+/[^/]+/blob/', target
                 ):
@@ -322,7 +352,6 @@ class LinkResolver:
 
         content = _LINK_RE.sub(_fix_md_github_link, content)
 
-        # Clean up any remaining placeholder markers.
         content = content.replace("__INVALID_PLACEHOLDER__", "")
         return content
 
@@ -495,9 +524,16 @@ def _block_count(text: str) -> int:
 
 
 def _path_aliases(broken_path: str) -> List[str]:
-    """Return known alias paths for common hallucinations."""
+    """Return known alias paths for common hallucinations.
+
+    LLMs frequently hallucinate per-class file paths (e.g.,
+    ``Repositories/OrderRepository.md``) when the actual generated file
+    is a combined page (``Repositories.md``).  This function maps those
+    hallucinated paths to the likely real files.
+    """
     path = broken_path.replace('\\', '/')
     aliases = []
+
     if 'Data Interactions' in path or 'Data%20Interactions' in path:
         aliases.append(path.replace('Data Interactions.md', 'DataContext.md'))
         aliases.append(path.replace('Data%20Interactions.md', 'DataContext.md'))
@@ -515,6 +551,23 @@ def _path_aliases(broken_path: str) -> List[str]:
         aliases.append(path.replace('DataInteraction.md', 'Repositories.md'))
     if 'eShop.' in path:
         aliases.append(re.sub(r'\.\./eShop\.\w+\.API/', '../', path))
+
+    # Hallucinated per-class subdirectory paths -> combined page
+    # e.g., "Repositories/OrderRepository.md" -> "Repositories.md"
+    subdir_match = re.search(r'([^/]+)/([^/]+)\.md$', path)
+    if subdir_match:
+        parent_name = subdir_match.group(1)
+        aliases.append(re.sub(r'[^/]+/[^/]+\.md$', f'{parent_name}.md', path))
+        aliases.append(re.sub(r'[^/]+/[^/]+\.md$', 'Models.md', path))
+
+    # README.md -> index.md
+    if 'README.md' in path:
+        aliases.append(path.replace('README.md', 'index.md'))
+
+    # Services/IdentityService.md -> Models.md (services are often in models)
+    if '/Services/' in path:
+        aliases.append(re.sub(r'Services/[^/]+\.md$', 'Models.md', path))
+
     return aliases
 
 

@@ -50,6 +50,12 @@ def get_system_prompt(detail_level: str = "detailed") -> str:
         "of heading hierarchy, Mermaid diagram syntax, expandable section format, "
         "table structure, and link conventions. Be precise with class names, method "
         "signatures, and line numbers from the source code. "
+        "CRITICAL: NEVER include raw source code blocks (```csharp, ```cs, ```c#) "
+        "in the documentation output. NEVER create a 'Source Code' section. "
+        "Reference source code ONLY through GitHub links. "
+        "For Mermaid diagrams: always use 'flowchart' (not 'graph'), ensure all "
+        "alt/opt/rect/loop blocks have matching 'end' keywords, and use rounded "
+        "nodes ([text]) for processes and {text} for decisions. "
     )
     detail = _DETAIL_LEVEL_INSTRUCTIONS.get(
         detail_level, _DETAIL_LEVEL_INSTRUCTIONS["detailed"]
@@ -141,7 +147,11 @@ return type and what it represents, async behaviour, and any side effects
 flowchart LR
     A([ClassName.MethodName]) --> B([Dependency.Method])
     B --> C([Another.Method])
+    click A "{{source_url}}" "ClassName.MethodName"
+    click B "../RelatedPage.md#section" "Dependency.Method"
 ```
+IMPORTANT: Every call graph MUST include `click` directives for each node that has a
+known documentation page or source URL, so diagram nodes are clickable links.
 
 ??? Call Graph Legend
     - **ClassName.MethodName** - [link to section] -- explain what this step does and why
@@ -172,6 +182,8 @@ flowchart LR
 - Link class headers to source URL
 - Include ALL classes found in the source -- do not skip any
 - Overview sections MUST be detailed (3-4 sentences minimum), never just one line
+- NEVER include raw source code blocks. Use GitHub links to reference source only.
+- NEVER create a "Source Code" section.
 
 ## Reference template (match this format AND level of detail exactly):
 
@@ -180,7 +192,7 @@ flowchart LR
 ## Class Metadata:
 {class_metadata}
 
-## Source Code:
+## Source Code (for your analysis only -- do NOT reproduce in output):
 
 {source_code}
 
@@ -219,7 +231,11 @@ return type and what it represents, data retrieval logic, and exception scenario
 ```mermaid
 flowchart LR
     A([ClassName.Method]) --> B([Dependency.Method])
+    click A "{{source_url}}" "ClassName.Method"
+    click B "../RelatedPage.md#section" "Dependency.Method"
 ```
+IMPORTANT: Every call graph MUST include `click` directives for each node that has a
+known documentation page or source URL, so diagram nodes are clickable links.
 
 ??? Call Graph Legend
     - links to related docs -- explain what each call does and why
@@ -245,6 +261,8 @@ flowchart LR
 - Use `???` for expandable sections
 - Document ALL public methods
 - Overview sections MUST be detailed (3-4 sentences minimum)
+- NEVER include raw source code blocks. Use GitHub links to reference source only.
+- NEVER create a "Source Code" section.
 
 ## Reference template (match this format AND level of detail):
 
@@ -253,7 +271,7 @@ flowchart LR
 ## Class Metadata:
 {class_metadata}
 
-## Source Code:
+## Source Code (for your analysis only -- do NOT reproduce in output):
 
 {source_code}
 
@@ -269,8 +287,9 @@ def feature_doc_prompt(
 ) -> str:
     """Build a prompt for API feature page documentation.
 
-    Produces a page with a sequence diagram, legend, dependencies, notes,
-    exception handling, and security considerations.
+    Produces a page with a class diagram, sequence diagram, legend,
+    methods with call graphs and implementation flows, dependencies
+    (framework + project-level), exception handling, and security.
     """
     example_block = _wrap_example(template_example)
     return f"""Generate documentation for the API feature: {feature_name}
@@ -283,6 +302,28 @@ def feature_doc_prompt(
 Detailed feature description: explain the business purpose, the user story or workflow
 it enables, the HTTP method and endpoint path, request/response models, and how the
 feature fits into the broader system architecture. Write at least 3-4 sentences.
+
+## Class Diagram
+```mermaid
+classDiagram
+    class EndpointClass {{
+        +MethodA()
+        +MethodB()
+    }}
+    class DependencyService {{
+        +Operation()
+    }}
+    class Repository {{
+        +GetAsync()
+        +Add()
+    }}
+    EndpointClass --> DependencyService : uses
+    DependencyService --> Repository : depends
+    link EndpointClass "{{source_url}}" "View source"
+    link Repository "{{source_url}}" "View source"
+```
+Show the controller/endpoint class, its direct service dependencies, repository
+dependencies, and domain model dependencies. Use `link` directives for clickable nodes.
 
 ## Sequence Diagram
 ```mermaid
@@ -311,8 +352,49 @@ sequenceDiagram
     - **2. Send command** - [link to command model] -- explain what the command carries
     (numbered list matching diagram steps -- each entry explains WHAT happens and WHY)
 
+## Methods
+
+For EACH significant public method in the controller/endpoint:
+
+### MethodName
+**Description:** What this method does, its parameters, return value, and HTTP verb/route.
+
+**Call Graph:**
+```mermaid
+flowchart LR
+    A([EndpointClass.Method]) --> B([Service.Operation])
+    B --> C([Repository.Persist])
+    click A "{{source_url}}" "EndpointClass.Method"
+    click B "../HandlerPage.md#section" "Service.Operation"
+    click C "../../Infrastructure/Repositories.md#section" "Repository.Persist"
+```
+IMPORTANT: Every call graph MUST include `click` directives for each node that has a
+known documentation page or source URL, so diagram nodes are clickable links.
+
+??? Call Graph Legend
+    - **EndpointClass.Method** - [link to source] -- entry point, what it receives
+    - **Service.Operation** - [link to handler doc page] -- what business logic runs
+    - **Repository.Persist** - [link to repository doc page] -- what data operation happens
+
+**Implementation Flow:**
+```mermaid
+flowchart LR
+    S([Start]) --> P1([Validate input])
+    P1 --> D1{{Valid?}}
+    D1 -- Yes --> P2([Process request])
+    D1 -- No --> E1([Return error])
+    P2 --> E2([Return result])
+```
+
 ## Dependencies
-- bullet list of dependent components with cross-page links and a sentence explaining each dependency's role
+
+### Framework Dependencies
+- bullet list of framework/library dependencies (e.g., MediatR, EF Core, ASP.NET Identity)
+
+### Project Dependencies
+- **[ComponentName](relative_link_to_doc_page)** -- brief description of what this dependency does
+- Each project-level dependency (repositories, domain models, services, database context)
+  MUST be a clickable link to its documentation page using relative markdown links.
 
 ??? Notes
     - business context notes with detailed explanation
@@ -324,11 +406,17 @@ sequenceDiagram
 - bullet list of security measures with explanation of what each protects against
 
 ## CRITICAL FORMAT RULES:
-- Use `sequenceDiagram` syntax (not flowchart)
-- Number the steps in the diagram
+- Use `sequenceDiagram` syntax for the sequence diagram
+- Use `classDiagram` syntax for the class diagram with `link` directives
+- Use `flowchart LR` for call graphs and implementation flows (NOT `graph LR`)
+- Number the steps in the sequence diagram
 - Legend entries match step numbers with links AND explanations
 - Use `???` for expandable sections
 - Overview MUST be detailed (3-4 sentences minimum)
+- Dependencies MUST include BOTH framework AND project-level items
+- Project dependencies MUST have clickable links to their documentation pages
+- NEVER include raw source code blocks (```csharp, ```cs). Reference source via GitHub links only.
+- NEVER create a "Source Code" section.
 
 ## Reference template (match this format AND level of detail):
 
@@ -337,7 +425,7 @@ sequenceDiagram
 ## Related Handlers and Models:
 {handler_info}
 
-## Source Code:
+## Source Code (for your analysis only -- do NOT reproduce in output):
 
 {source_code}
 
@@ -407,6 +495,8 @@ classDiagram
 - List domain operations with preconditions, postconditions, and links to domain event docs
 - Separate aggregates with `---`
 - Overview sections MUST be detailed (3-4 sentences minimum)
+- NEVER include raw source code blocks. Use GitHub links to reference source only.
+- NEVER create a "Source Code" section.
 
 ## Reference template (match this format AND level of detail):
 
@@ -415,7 +505,7 @@ classDiagram
 ## Class Metadata:
 {class_metadata}
 
-## Source Code:
+## Source Code (for your analysis only -- do NOT reproduce in output):
 
 {source_code}
 
@@ -460,6 +550,8 @@ conventions. Write at least 2-3 sentences.
 - Group related classes under category headers if appropriate
 - Separate classes with `---`
 - Overview sections should be informative and explain purpose, not just repeat the class name
+- NEVER include raw source code blocks. Use GitHub links to reference source only.
+- NEVER create a "Source Code" section.
 
 ## Reference template (match this format AND level of detail):
 
@@ -468,7 +560,7 @@ conventions. Write at least 2-3 sentences.
 ## Class Metadata:
 {class_metadata}
 
-## Source Code:
+## Source Code (for your analysis only -- do NOT reproduce in output):
 
 {source_code}
 
@@ -519,6 +611,8 @@ flowchart LR
 - Include exception scenarios with causes and resolutions
 - Separate classes with `---`
 - Overview sections MUST be detailed (3-4 sentences minimum)
+- NEVER include raw source code blocks. Use GitHub links to reference source only.
+- NEVER create a "Source Code" section.
 
 ## Reference template (match this format AND level of detail):
 
@@ -527,7 +621,7 @@ flowchart LR
 ## Class Metadata:
 {class_metadata}
 
-## Source Code:
+## Source Code (for your analysis only -- do NOT reproduce in output):
 
 {source_code}
 
@@ -540,49 +634,114 @@ def overview_doc_prompt(
     component_summary: str,
     source_code: str,
     template_example: Optional[str] = None,
+    controller_pages: str = "",
 ) -> str:
-    """Build a prompt for the API-level overview page."""
+    """Build a prompt for the API-level overview page.
+
+    Args:
+        controller_pages: Pre-built list of generated feature/component doc
+            page paths so the LLM can produce correct cross-page links.
+    """
     example_block = _wrap_example(template_example)
+    controller_section = ""
+    if controller_pages:
+        controller_section = f"""
+## Generated Controller / Feature Pages (use these for internal links):
+{controller_pages}
+
+IMPORTANT: In Technical Implementation Details, link each capability to
+the appropriate generated page above using relative markdown links
+(e.g., [OrderCreation](./OrdersApi/OrderCreation.md)).
+"""
     return f"""Generate an overview documentation page for: {api_name}
 
 ## Output Structure:
 
 # {api_name} Documentation
 
-## Sequence Diagram
-(Full system-level flow showing Client -> API -> MediatR -> Handlers -> Domain -> Database)
-
-## Class Diagram
-(Key domain model relationships)
-
 ## 1. Feature Overview
-- Comprehensive description covering business motivation, user stories addressed, and architectural decisions
+- Comprehensive description covering business motivation, user stories addressed,
+  and architectural decisions
 - Business motivation (3-4 detailed bullets explaining WHY each aspect matters)
 - Key stakeholders and their concerns
 
 ## 2. Business Implementation Details
-- Business rules (numbered)
-- Assumptions and constraints
+Each business flow MUST be a proper ### heading (NOT a numbered list item).
+For example:
+
+### Order Creation
+- Step-by-step description of this business flow
+- Business rules that apply
+- Domain events raised
+
+### Order Cancellation
+- Step-by-step description ...
+
+Include a Sequence Diagram here showing the end-to-end system flow:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant MediatR
+    participant Handler
+    participant Domain
+    participant Database
+
+    Client->>API: HTTP request
+    API->>MediatR: Send command/query
+    MediatR->>Handler: Route to handler
+    Handler->>Domain: Execute domain logic
+    Domain->>Database: Persist changes
+    Database-->>Client: Response
+```
+
+??? Sequence Diagram Legend
+    (numbered steps matching diagram with links and explanations)
 
 ## 3. Technical Implementation Details
-- API endpoints with HTTP methods and paths
-- Key components (numbered list)
-- Request/response examples
+Group capabilities by controller/endpoint. Each capability group MUST be a ### heading.
+Each group MUST begin with a brief paragraph (2-3 sentences) describing what the
+capability does, which systems it interacts with (database, event bus, external services),
+and how it fits into the overall architecture. Then show an endpoint table and SEPARATE
+"View detailed documentation" links for EACH feature page.
+
+### {{Capability Name}} Endpoints
+
+These endpoints manage [describe capability] by interacting with [systems: database,
+event bus, etc.]. They implement [patterns used] to ensure [business goal].
+
+| Method | Endpoint | Description |
+|:-------|:---------|:------------|
+| GET    | /api/v1/resource | Description |
+| POST   | /api/v1/resource | Description |
+
+- [View detailed documentation: Feature A](./ControllerName/FeatureA.md)
+- [View detailed documentation: Feature B](./ControllerName/FeatureB.md)
+
+List ALL endpoints for each controller. Provide a SEPARATE clickable link per feature page.
 
 ## 4. Validation and Error Handling
 ## 5. Security and Access Control
 ## 6. Testing Strategy
 ## 7. Deployment Considerations
 ## 8. References
-- Links to key source files and related documentation
+- Related Documentation links (links to feature pages and dependent library docs)
+- Integration Events (list domain/integration events with brief descriptions)
+- Do NOT include a "Source Code" subsection here. Source code links belong in
+  the class diagrams and inline references, not in a standalone reference list.
 
 ## CRITICAL FORMAT RULES:
-- Use `sequenceDiagram` for the system flow
-- Use `classDiagram` with `link` directives for the class diagram
-- Number all sections
+- Use `sequenceDiagram` for the system flow diagram (placed inside Business Implementation Details)
+- Number all top-level sections
+- Business flows MUST be ### headings, NOT numbered list items
+- Technical capabilities MUST be grouped by controller with ### headings
+- Each controller group MUST link to its detailed documentation page
 - Include realistic examples
 - All sections MUST be elaborative and detailed, not summaries
-
+- NEVER include raw source code blocks. Use GitHub links to reference source only.
+- NEVER create a "Source Code" section.
+{controller_section}
 ## Reference template (match this format AND level of detail):
 
 {example_block}
@@ -590,7 +749,7 @@ def overview_doc_prompt(
 ## Component Summary:
 {component_summary}
 
-## Source Code:
+## Source Code (for your analysis only -- do NOT reproduce in output):
 
 {source_code}
 
