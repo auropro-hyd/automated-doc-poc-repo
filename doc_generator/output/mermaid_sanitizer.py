@@ -35,6 +35,8 @@ def sanitize_mermaid_blocks(
     Returns:
         The markdown with all mermaid blocks sanitized.
     """
+    content = _fix_inline_closing_fences(content)
+    content = _strip_absolute_local_paths(content)
 
     def _fix_block(match: re.Match) -> str:
         prefix = match.group(1)
@@ -98,13 +100,17 @@ def fix_click_links_to_github(
         r'^(\s*click\s+\w+\s+href\s+)"([^"]+)"\s+"([^"]+)"\s*$',
         re.MULTILINE,
     )
+    _LINK_URL_RE = re.compile(
+        r'^(\s*link\s+(\w+)\s+)"([^"]+)"\s+"([^"]+)"\s*$',
+        re.MULTILINE,
+    )
 
     def _fix_block(match: re.Match) -> str:
         prefix = match.group(1)
         body = match.group(2)
         suffix = match.group(3)
 
-        def _rewrite(cm: re.Match) -> str:
+        def _rewrite_click(cm: re.Match) -> str:
             before, url, tooltip = cm.group(1), cm.group(2), cm.group(3)
             if url.startswith("http"):
                 return cm.group(0)
@@ -114,7 +120,23 @@ def fix_click_links_to_github(
                 return f'{before}"{gh}" "{tooltip}"'
             return f"    %% Removed: no GitHub source for {tooltip}"
 
-        body = _CLICK_URL_RE.sub(_rewrite, body)
+        def _rewrite_link(cm: re.Match) -> str:
+            before, node_name, url, tooltip = (
+                cm.group(1), cm.group(2), cm.group(3), cm.group(4),
+            )
+            if url.startswith("http"):
+                return cm.group(0)
+            cls = node_name.lower()
+            gh = class_to_github.get(cls)
+            if not gh:
+                cls = tooltip.replace("View ", "").replace(" source", "").replace(" documentation", "").split(".")[0].strip().lower()
+                gh = class_to_github.get(cls)
+            if gh:
+                return f'{before}"{gh}" "{tooltip}"'
+            return f"    %% Removed: no GitHub source for {node_name}"
+
+        body = _CLICK_URL_RE.sub(_rewrite_click, body)
+        body = _LINK_URL_RE.sub(_rewrite_link, body)
         return prefix + body + suffix
 
     return _MERMAID_BLOCK_RE.sub(_fix_block, content)
@@ -494,3 +516,23 @@ def _fix_special_chars_in_labels(body: str) -> str:
         _quote_label,
         body,
     )
+
+
+def _fix_inline_closing_fences(content: str) -> str:
+    """Move closing ``` from end-of-content lines to their own line.
+
+    LLMs sometimes generate ``click A href "url" "tip"``` with the
+    closing fence glued to the last line.  The markdown parser needs
+    the fence on its own line to recognise the code block.
+    """
+    return re.sub(r'^(.+[^`])```\s*$', r'\1\n```', content, flags=re.MULTILINE)
+
+
+def _strip_absolute_local_paths(content: str) -> str:
+    """Remove absolute local filesystem paths from GitHub URLs.
+
+    LLMs occasionally produce URLs like
+    ``https://github.com/org/repo/blob/main//Users/me/proj/src/...``
+    which should be ``https://github.com/org/repo/blob/main/src/...``.
+    """
+    return re.sub(r'/Users/[^"]*?/automated-doc-poc-repo/', '', content)

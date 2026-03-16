@@ -120,8 +120,8 @@ To start working with the eShop system:
    ```powershell
    docker-compose up -d
    dotnet run --project src/eShop.AppHost
-   ```
-
+   
+```
 ## Contributing
 
 Please read our [Contributing Guidelines](contributing.md) for details on:
