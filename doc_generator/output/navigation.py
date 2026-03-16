@@ -150,16 +150,20 @@ class NavigationBuilder:
     def _match_overview_to_group(filename: str, group_names: set) -> str:
         """Match an overview file to its API group.
 
-        Design decision: Matches ``ordering-api.md`` to ``Ordering.API``,
-        ``catalog-api.md`` to ``Catalog.API``, etc. by comparing the
-        lowercase prefix before ``-api.md`` against each group name.
+        Matches ``ordering-api.md`` to ``Ordering.API``,
+        ``catalog-api.md`` to ``Catalog.API``, etc. by building the
+        exact expected group name ``<Prefix>.API`` and matching it
+        case-insensitively. This prevents ``ordering-api.md`` from
+        accidentally matching ``Ordering.Domain`` or
+        ``Ordering.Infrastructure``.
         """
         stem = Path(filename).stem.lower()  # e.g., "ordering-api"
         if not stem.endswith("-api"):
             return ""
         prefix = stem.replace("-api", "")  # e.g., "ordering"
+        target = f"{prefix}.api"  # e.g., "ordering.api"
         for group in group_names:
-            if group.lower().startswith(prefix):
+            if group.lower() == target:
                 return group
         return ""
 

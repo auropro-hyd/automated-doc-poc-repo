@@ -7,9 +7,10 @@ This module does NOT rely on the LLM -- all fixes are regex-based, so they
 are guaranteed to execute regardless of model behaviour.
 """
 
+import os
 import re
 import logging
-from typing import Optional
+from typing import Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +45,157 @@ def sanitize_mermaid_blocks(
         body = _fix_class_diagram_braces(body)
         body = _fix_unbalanced_braces(body)
         body = _fix_missing_end_keywords(body)
+        body = _fix_click_href_keyword(body)
         body = _fix_click_directives(body, repo_url)
         body = _fix_broken_link_directives(body)
         body = _strip_style_directives(body)
         body = _fix_special_chars_in_labels(body)
+        body = _escape_html_angles(body)
 
         return prefix + body + suffix
 
     content = _close_unclosed_mermaid_fences(content)
     result = _MERMAID_BLOCK_RE.sub(_fix_block, content)
     return result
+
+
+def fix_click_links_to_github(
+    content: str,
+    source_root: str,
+    repo_url: str,
+    branch: str = "main",
+) -> str:
+    """Replace non-GitHub ``click`` URLs with GitHub source links.
+
+    Scans all Mermaid blocks for ``click`` directives whose URL is a
+    local anchor (``#...``) or relative doc path (``../../...``).  For
+    each, extracts the class name from the tooltip, looks up the
+    corresponding ``.cs`` file under *source_root*, and rewrites the
+    URL to a GitHub blob link.  Directives that cannot be mapped are
+    commented out so they don't produce broken links.
+
+    This function is idempotent and safe to call on every build.
+    """
+    class_to_github: dict = {}
+    for root, _dirs, files in os.walk(source_root):
+        for fname in files:
+            if not fname.endswith(".cs"):
+                continue
+            fpath = os.path.join(root, fname)
+            github = f"{repo_url}/blob/{branch}/{fpath}"
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
+                    src = fh.read()
+            except OSError:
+                continue
+            for m in re.finditer(r"\b(?:class|interface|record|struct)\s+(\w+)", src):
+                class_to_github[m.group(1).lower()] = github
+            stem = fname.replace(".cs", "").lower()
+            if stem not in class_to_github:
+                class_to_github[stem] = github
+
+    _CLICK_URL_RE = re.compile(
+        r'^(\s*click\s+\w+\s+href\s+)"([^"]+)"\s+"([^"]+)"\s*$',
+        re.MULTILINE,
+    )
+
+    def _fix_block(match: re.Match) -> str:
+        prefix = match.group(1)
+        body = match.group(2)
+        suffix = match.group(3)
+
+        def _rewrite(cm: re.Match) -> str:
+            before, url, tooltip = cm.group(1), cm.group(2), cm.group(3)
+            if url.startswith("http"):
+                return cm.group(0)
+            cls = tooltip.replace(" constructor", "").split(".")[0].strip().lower()
+            gh = class_to_github.get(cls)
+            if gh:
+                return f'{before}"{gh}" "{tooltip}"'
+            return f"    %% Removed: no GitHub source for {tooltip}"
+
+        body = _CLICK_URL_RE.sub(_rewrite, body)
+        return prefix + body + suffix
+
+    return _MERMAID_BLOCK_RE.sub(_fix_block, content)
+
+
+def fix_mermaid_links_for_mkdocs(
+    content: str,
+    docs_root: str,
+    page_rel_path: str,
+) -> str:
+    """Post-process Mermaid link/click directives for MkDocs compatibility.
+
+    MkDocs ``use_directory_urls`` turns ``Foo.md`` into ``Foo/index.html``
+    served at ``Foo/``.  This adds one URL directory level that breaks
+    relative ``.md`` paths inside Mermaid diagrams.  This function:
+
+    1. Validates each relative ``.md`` target against *docs_root*.
+    2. For valid targets: prepends ``../`` and replaces ``.md`` with ``/``
+       so the browser-relative URL matches the MkDocs directory layout.
+    3. For hallucinated targets (file not found): comments out the directive.
+
+    Args:
+        content: Full markdown string.
+        docs_root: Absolute path to the ``docs/`` folder (e.g. ``src/docs/docs``).
+        page_rel_path: Path of the current page relative to *docs_root*
+            (e.g. ``Ordering.API/OrdersApi/OrderCreation.md``).
+    """
+    page_dir = os.path.dirname(page_rel_path)
+
+    existing_files: Set[str] = set()
+    for root, _dirs, files in os.walk(docs_root):
+        for f in files:
+            rel = os.path.relpath(os.path.join(root, f), docs_root)
+            existing_files.add(os.path.normpath(rel))
+
+    def _fix_link_in_block(match: re.Match) -> str:
+        prefix = match.group(1)
+        body = match.group(2)
+        suffix = match.group(3)
+
+        body = _transform_relative_links(body, page_dir, existing_files)
+        return prefix + body + suffix
+
+    return _MERMAID_BLOCK_RE.sub(_fix_link_in_block, content)
+
+
+def _transform_relative_links(
+    body: str,
+    page_dir: str,
+    existing_files: Set[str],
+) -> str:
+    """Transform or remove relative .md links inside a single Mermaid block."""
+    _LINK_RE = re.compile(
+        r'^(\s*(?:click|link)\s+\w+\s+)"(\.\.?/[^"]*\.md[^"]*)"(.*)$',
+        re.MULTILINE,
+    )
+
+    def _replace(m: re.Match) -> str:
+        before = m.group(1)
+        url = m.group(2)
+        after = m.group(3)
+
+        anchor = ""
+        path_part = url
+        if "#" in url:
+            path_part, anchor = url.rsplit("#", 1)
+            anchor = "#" + anchor
+
+        decoded = path_part.replace("%20", " ")
+        resolved = os.path.normpath(os.path.join(page_dir, decoded))
+
+        if resolved in existing_files:
+            new_path = "../" + path_part.replace(".md", "/")
+            return f'{before}"{new_path}{anchor}"{after}'
+        else:
+            node_match = re.match(r'\s*(?:click|link)\s+(\w+)', m.group(0))
+            node = node_match.group(1) if node_match else "?"
+            logger.debug("Removing hallucinated Mermaid link: %s -> %s", node, url)
+            return f"    %% Removed: hallucinated link ({url})"
+
+    return _LINK_RE.sub(_replace, body)
 
 
 def _close_unclosed_mermaid_fences(content: str) -> str:
@@ -200,6 +342,21 @@ def _fix_missing_end_keywords(body: str) -> str:
     return "\n".join(lines)
 
 
+def _fix_click_href_keyword(body: str) -> str:
+    """Ensure ``click`` directives use the ``href`` keyword for URL navigation.
+
+    Mermaid 10.x requires ``click nodeId href "URL" "tooltip"`` for links.
+    Without ``href``, Mermaid interprets the URL as a JavaScript callback
+    name, making the node non-clickable.
+    """
+    return re.sub(
+        r'^(\s*click\s+\w+)\s+"([^"]+)"\s+"([^"]+)"\s*$',
+        r'\1 href "\2" "\3"',
+        body,
+        flags=re.MULTILINE,
+    )
+
+
 def _fix_click_directives(body: str, repo_url: Optional[str]) -> str:
     """Comment out ``click`` directives whose URL is hallucinated."""
     if not repo_url:
@@ -260,6 +417,48 @@ def _fix_broken_link_directives(body: str) -> str:
         body,
         flags=re.MULTILINE,
     )
+
+
+def _escape_html_angles(body: str) -> str:
+    """Escape ``<Text>`` patterns that Mermaid ``loose`` mode would treat as HTML.
+
+    With ``securityLevel: loose`` Mermaid allows HTML in labels.  C# generics
+    like ``IEnumerable<OrderSummary>`` get eaten *in flowchart node labels*
+    (rendered via ``<foreignObject>`` with embedded HTML).
+
+    Sequence diagrams render message text in SVG ``<text>`` elements which
+    do NOT interpret HTML, so escaping ``<`` to ``&lt;`` there actually
+    *breaks* the Mermaid parser.  We therefore skip sequence diagrams.
+
+    Class diagram stereotypes (``<<interface>>``) are also preserved.
+    """
+    first_line = body.strip().split("\n", 1)[0].strip().lower()
+    is_class_diagram = "classdiagram" in first_line.replace(" ", "")
+    is_sequence_diagram = "sequencediagram" in first_line.replace(" ", "")
+
+    if is_sequence_diagram:
+        return body
+
+    lines = body.split("\n")
+    fixed = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(("%%", "click ", "link ", "classDef")):
+            fixed.append(line)
+            continue
+
+        if is_class_diagram and re.search(r"<<\w+>>", line):
+            fixed.append(line)
+            continue
+
+        if re.search(r"<\w+>", line) and not stripped.startswith(("click ", "link ")):
+            line = re.sub(
+                r"(?<!<)<(\w[\w.]*?)>(?!>)",
+                r"&lt;\1&gt;",
+                line,
+            )
+        fixed.append(line)
+    return "\n".join(fixed)
 
 
 def _strip_style_directives(body: str) -> str:
