@@ -18,7 +18,7 @@ from typing import Dict, List, Tuple
 
 from ..config import ConfigLoader
 from .link_resolver import LinkResolver
-from .mermaid_sanitizer import fix_click_links_to_github
+from .mermaid_sanitizer import fix_click_links_to_github, fix_table_formatting
 from .navigation import NavigationBuilder
 
 logger = logging.getLogger(__name__)
@@ -119,10 +119,11 @@ class DocumentAssembler:
                 branch=self.config.repo_branch,
             )
 
-        # Second pass: resolve refs and write files.
+        # Second pass: resolve refs, fix table formatting, and write files.
         written: List[Path] = []
         for rel_path, content in generated.items():
             content = self._resolve_refs(content, rel_path)
+            content = fix_table_formatting(content)
             full_path = docs_dir / rel_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(content, encoding="utf-8")

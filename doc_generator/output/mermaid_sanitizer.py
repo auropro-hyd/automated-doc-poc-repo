@@ -67,18 +67,25 @@ def fix_click_links_to_github(
     repo_url: str,
     branch: str = "main",
 ) -> str:
-    """Replace non-GitHub ``click`` URLs with GitHub source links.
+    """Replace non-GitHub ``click`` URLs with GitHub source links and
+    append ``#Lxx`` line-number anchors for precise navigation.
 
-    Scans all Mermaid blocks for ``click`` directives whose URL is a
-    local anchor (``#...``) or relative doc path (``../../...``).  For
-    each, extracts the class name from the tooltip, looks up the
-    corresponding ``.cs`` file under *source_root*, and rewrites the
-    URL to a GitHub blob link.  Directives that cannot be mapped are
-    commented out so they don't produce broken links.
+    Scans all Mermaid blocks for ``click`` and ``link`` directives.
+    For non-HTTP URLs, extracts the class name from the tooltip, looks
+    up the corresponding ``.cs`` file under *source_root*, and rewrites
+    the URL to a GitHub blob link.  For URLs already pointing to the
+    repository, appends or corrects the ``#Lxx`` fragment so clicking
+    a diagram node jumps directly to the relevant line of code.
+
+    Directives that cannot be mapped are commented out so they don't
+    produce broken links.
 
     This function is idempotent and safe to call on every build.
     """
     class_to_github: dict = {}
+    line_index: dict = {}  # (file_path, symbol_name) -> line_number
+    github_base = f"{repo_url}/blob/{branch}/"
+
     for root, _dirs, files in os.walk(source_root):
         for fname in files:
             if not fname.endswith(".cs"):
@@ -87,14 +94,86 @@ def fix_click_links_to_github(
             github = f"{repo_url}/blob/{branch}/{fpath}"
             try:
                 with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
-                    src = fh.read()
+                    src_lines = fh.readlines()
             except OSError:
                 continue
+
+            src = "".join(src_lines)
             for m in re.finditer(r"\b(?:class|interface|record|struct)\s+(\w+)", src):
                 class_to_github[m.group(1).lower()] = github
             stem = fname.replace(".cs", "").lower()
             if stem not in class_to_github:
                 class_to_github[stem] = github
+
+            for i, line in enumerate(src_lines, 1):
+                stripped = line.strip()
+                cm = re.match(
+                    r"(?:public\s+)?(?:abstract\s+)?(?:sealed\s+)?(?:partial\s+)?"
+                    r"(?:class|record|struct|interface)\s+(\w+)",
+                    stripped,
+                )
+                if cm:
+                    line_index[(fpath, cm.group(1))] = i
+
+                cm = re.match(
+                    r"(?:public|protected|private|internal)\s+"
+                    r"(?:static\s+)?(?:async\s+)?(?:override\s+)?(?:virtual\s+)?"
+                    r"[\w<>\[\],\s]+?\s+(\w+)\s*\(",
+                    stripped,
+                )
+                if cm:
+                    mname = cm.group(1)
+                    if mname not in (
+                        "if", "for", "while", "switch", "catch",
+                        "using", "return", "throw", "new", "get", "set",
+                    ):
+                        line_index[(fpath, mname)] = i
+
+                cm = re.match(
+                    r"(?:public|protected|private|internal)\s+"
+                    r"(\w+)\s*\(",
+                    stripped,
+                )
+                if cm and (fpath, cm.group(1)) in line_index:
+                    line_index[(fpath, f"{cm.group(1)}_ctor")] = i
+
+    def _find_line(file_path: str, tooltip: str) -> Optional[int]:
+        """Look up the source line for a tooltip label in *file_path*.
+
+        Tries, in order: exact method name (last part), then
+        intermediate property names (middle parts only, skipping the
+        first part which is typically the class name — matching it
+        would just land on the class declaration, not the property).
+        """
+        clean = tooltip.strip()
+        search_names: list = []
+        if " constructor" in clean:
+            cn = clean.replace(" constructor", "").replace(" (constructor)", "").split(".")[-1]
+            search_names = [f"{cn}_ctor", cn]
+        elif "." in clean:
+            parts = clean.split(".")
+            search_names = [parts[-1]]
+            if len(parts) >= 3:
+                for p in reversed(parts[1:-1]):
+                    search_names.append(p)
+        else:
+            search_names = [clean]
+        for name in search_names:
+            key = (file_path, name)
+            if key in line_index:
+                return line_index[key]
+        return None
+
+    def _append_line_anchor(github_url: str, tooltip: str) -> str:
+        """Append ``#Lxx`` to *github_url* if the symbol can be found."""
+        url_no_fragment = github_url.split("#")[0]
+        file_path = url_no_fragment.replace(github_base, "")
+        line_num = _find_line(file_path, tooltip)
+        if line_num is not None:
+            return f"{url_no_fragment}#L{line_num}"
+        if "#L" in github_url:
+            return url_no_fragment
+        return github_url
 
     _CLICK_URL_RE = re.compile(
         r'^(\s*click\s+\w+\s+href\s+)"([^"]+)"\s+"([^"]+)"\s*$',
@@ -113,10 +192,13 @@ def fix_click_links_to_github(
         def _rewrite_click(cm: re.Match) -> str:
             before, url, tooltip = cm.group(1), cm.group(2), cm.group(3)
             if url.startswith("http"):
-                return cm.group(0)
+                if url.startswith(github_base) or url.startswith(repo_url):
+                    url = _append_line_anchor(url, tooltip)
+                return f'{before}"{url}" "{tooltip}"'
             cls = tooltip.replace(" constructor", "").split(".")[0].strip().lower()
             gh = class_to_github.get(cls)
             if gh:
+                gh = _append_line_anchor(gh, tooltip)
                 return f'{before}"{gh}" "{tooltip}"'
             return f"    %% Removed: no GitHub source for {tooltip}"
 
@@ -125,13 +207,16 @@ def fix_click_links_to_github(
                 cm.group(1), cm.group(2), cm.group(3), cm.group(4),
             )
             if url.startswith("http"):
-                return cm.group(0)
+                if url.startswith(github_base) or url.startswith(repo_url):
+                    url = _append_line_anchor(url, tooltip)
+                return f'{before}"{url}" "{tooltip}"'
             cls = node_name.lower()
             gh = class_to_github.get(cls)
             if not gh:
                 cls = tooltip.replace("View ", "").replace(" source", "").replace(" documentation", "").split(".")[0].strip().lower()
                 gh = class_to_github.get(cls)
             if gh:
+                gh = _append_line_anchor(gh, tooltip)
                 return f'{before}"{gh}" "{tooltip}"'
             return f"    %% Removed: no GitHub source for {node_name}"
 
@@ -526,6 +611,25 @@ def _fix_inline_closing_fences(content: str) -> str:
     the fence on its own line to recognise the code block.
     """
     return re.sub(r'^(.+[^`])```\s*$', r'\1\n```', content, flags=re.MULTILINE)
+
+
+def fix_table_formatting(content: str) -> str:
+    """Ensure markdown tables are preceded by a blank line.
+
+    Python-Markdown (used by MkDocs) requires a blank line before a
+    pipe table.  Without it, the table rows are rendered as inline text
+    in the preceding paragraph.  This function inserts the blank line
+    where it's missing.
+    """
+    lines = content.split("\n")
+    result: list = []
+    for i, line in enumerate(lines):
+        if i > 0 and re.match(r"^\|[\s\w]", line):
+            prev = lines[i - 1].strip()
+            if prev and not prev.startswith("|") and not prev.startswith("---"):
+                result.append("")
+        result.append(line)
+    return "\n".join(result)
 
 
 def _strip_absolute_local_paths(content: str) -> str:
