@@ -308,6 +308,28 @@ def fix_click_links_to_github(
             if injected:
                 body = body.rstrip() + "\n" + "\n".join(injected) + "\n"
 
+        is_classdiagram = first_line.startswith("classdiagram")
+        if is_classdiagram:
+            existing_links: set = set()
+            for cm in re.finditer(r"^\s*link\s+(\w+)\s", body, re.MULTILINE):
+                existing_links.add(cm.group(1))
+
+            class_defs = re.findall(
+                r"^\s*class\s+(\w+)\s*[\{:]", body, re.MULTILINE
+            )
+            link_lines: list = []
+            for cname in class_defs:
+                if cname in existing_links:
+                    continue
+                gh = class_to_github.get(cname.lower())
+                if gh:
+                    gh = _append_line_anchor(gh, cname)
+                    link_lines.append(
+                        f'    link {cname} "{gh}" "View {cname} source"'
+                    )
+            if link_lines:
+                body = body.rstrip() + "\n" + "\n".join(link_lines) + "\n"
+
         return prefix + body + suffix
 
     result = _MERMAID_BLOCK_RE.sub(_fix_block, content)

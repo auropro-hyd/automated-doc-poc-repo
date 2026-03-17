@@ -121,6 +121,7 @@ To start working with the eShop system:
    docker-compose up -d
    dotnet run --project src/eShop.AppHost
    
+
 ```
 ## Contributing
 
