@@ -61,11 +61,47 @@ def sanitize_mermaid_blocks(
     return result
 
 
+def build_class_map(
+    source_root: str,
+    repo_url: str,
+    branch: str = "main",
+) -> dict:
+    """Build a mapping from lowercase class/interface names to GitHub URLs.
+
+    Scans all ``.cs`` files under *source_root* and returns a dict
+    ``{class_name_lower: github_blob_url}``.  This map is used by
+    :func:`fix_click_links_to_github` and :func:`fix_sequence_legends`.
+    """
+    class_to_github: dict = {}
+    abs_source = os.path.abspath(source_root)
+    repo_root = os.path.dirname(abs_source)
+
+    for root, _dirs, files in os.walk(source_root):
+        for fname in files:
+            if not fname.endswith(".cs"):
+                continue
+            fpath = os.path.join(root, fname)
+            rel_fpath = os.path.relpath(fpath, repo_root)
+            github = f"{repo_url}/blob/{branch}/{rel_fpath}"
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
+                    src = fh.read()
+            except OSError:
+                continue
+            for m in re.finditer(r"\b(?:class|interface|record|struct)\s+(\w+)", src):
+                class_to_github[m.group(1).lower()] = github
+            stem = fname.replace(".cs", "").lower()
+            if stem not in class_to_github:
+                class_to_github[stem] = github
+    return class_to_github
+
+
 def fix_click_links_to_github(
     content: str,
     source_root: str,
     repo_url: str,
     branch: str = "main",
+    class_to_github: Optional[dict] = None,
 ) -> str:
     """Replace non-GitHub ``click`` URLs with GitHub source links and
     append ``#Lxx`` line-number anchors for precise navigation.
@@ -82,7 +118,9 @@ def fix_click_links_to_github(
 
     This function is idempotent and safe to call on every build.
     """
-    class_to_github: dict = {}
+    if class_to_github is None:
+        class_to_github = build_class_map(source_root, repo_url, branch)
+
     line_index: dict = {}  # (file_path, symbol_name) -> line_number
     github_base = f"{repo_url}/blob/{branch}/"
 
@@ -95,19 +133,12 @@ def fix_click_links_to_github(
                 continue
             fpath = os.path.join(root, fname)
             rel_fpath = os.path.relpath(fpath, repo_root)
-            github = f"{repo_url}/blob/{branch}/{rel_fpath}"
+
             try:
                 with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
                     src_lines = fh.readlines()
             except OSError:
                 continue
-
-            src = "".join(src_lines)
-            for m in re.finditer(r"\b(?:class|interface|record|struct)\s+(\w+)", src):
-                class_to_github[m.group(1).lower()] = github
-            stem = fname.replace(".cs", "").lower()
-            if stem not in class_to_github:
-                class_to_github[stem] = github
 
             for i, line in enumerate(src_lines, 1):
                 stripped = line.strip()
@@ -257,10 +288,14 @@ def fix_click_links_to_github(
                 label = nm.group(2).strip()
                 if node_id in existing_click_nodes:
                     continue
-                cls_name = label.split(".")[0].strip().lower()
+                clean_label = label.replace(" constructor", "").replace(" (constructor)", "")
+                cls_name = clean_label.split(".")[0].strip().lower()
                 gh = class_to_github.get(cls_name)
                 if not gh:
-                    parts = label.split(".")
+                    cls_name = clean_label.split()[0].strip().lower()
+                    gh = class_to_github.get(cls_name)
+                if not gh:
+                    parts = clean_label.split(".")
                     if len(parts) > 1:
                         cls_name = parts[0].strip().lower()
                         gh = class_to_github.get(cls_name)
@@ -682,6 +717,78 @@ def fix_table_formatting(content: str) -> str:
             if prev and not prev.startswith("|") and not prev.startswith("---"):
                 result.append("")
         result.append(line)
+    return "\n".join(result)
+
+
+def fix_sequence_legends(content: str, class_to_github: dict) -> str:
+    """Reformat ``??? Sequence Diagram Legend`` blocks for MkDocs.
+
+    The LLM often generates legend content as unindented numbered lists::
+
+        ??? Sequence Diagram Legend
+        1. **Client** sends a request.
+        2. **OrdersApi** forwards the command.
+
+    ``pymdownx.details`` requires 4-space indentation for content inside
+    a ``???`` block.  This function converts unindented numbered items to
+    properly indented bullet lists and adds clickable GitHub links for
+    component names that exist in *class_to_github*.
+
+    Already-formatted blocks (4-space indented bullets) are left
+    untouched, making the function idempotent.
+    """
+    _LEGEND_HEADER = "??? Sequence Diagram Legend"
+    _NUM_RE = re.compile(
+        r"^(\d+)\.\s+(.+)$"
+    )
+    _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+    lines = content.split("\n")
+    result: list = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() == _LEGEND_HEADER:
+            result.append(line)
+            i += 1
+            if i < len(lines) and lines[i].startswith("    "):
+                continue
+            while i < len(lines):
+                raw = lines[i]
+                m = _NUM_RE.match(raw.strip())
+                if not m:
+                    if raw.strip() == "" or raw.strip().startswith("-"):
+                        break
+                    result.append(raw)
+                    i += 1
+                    continue
+                num, body = m.group(1), m.group(2)
+                bold_m = _BOLD_RE.search(body)
+                if not bold_m:
+                    result.append(f"    - **{num}.** {body}")
+                    i += 1
+                    continue
+                component = bold_m.group(1)
+                rest = body[bold_m.end():].lstrip(" ,.:-").strip()
+                clean_name = component.replace("The ", "").strip()
+                cls_key = clean_name.lower()
+                gh = class_to_github.get(cls_key)
+                if not gh:
+                    parts = clean_name.split()
+                    if parts:
+                        gh = class_to_github.get(parts[0].lower())
+                if gh:
+                    entry = (
+                        f"    - **{num}. {component}** -- "
+                        f"[{clean_name}]({gh}) -- {rest}"
+                    )
+                else:
+                    entry = f"    - **{num}. {component}** -- {rest}"
+                result.append(entry)
+                i += 1
+        else:
+            result.append(line)
+            i += 1
     return "\n".join(result)
 
 
