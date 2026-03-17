@@ -61,30 +61,28 @@ def sanitize_mermaid_blocks(
     return result
 
 
-def fix_click_links_to_github(
-    content: str,
+def build_class_map(
     source_root: str,
     repo_url: str,
     branch: str = "main",
-) -> str:
-    """Replace non-GitHub ``click`` URLs with GitHub source links.
+) -> dict:
+    """Build a mapping from lowercase class/interface names to GitHub URLs.
 
-    Scans all Mermaid blocks for ``click`` directives whose URL is a
-    local anchor (``#...``) or relative doc path (``../../...``).  For
-    each, extracts the class name from the tooltip, looks up the
-    corresponding ``.cs`` file under *source_root*, and rewrites the
-    URL to a GitHub blob link.  Directives that cannot be mapped are
-    commented out so they don't produce broken links.
-
-    This function is idempotent and safe to call on every build.
+    Scans all ``.cs`` files under *source_root* and returns a dict
+    ``{class_name_lower: github_blob_url}``.  This map is used by
+    :func:`fix_click_links_to_github` and :func:`fix_sequence_legends`.
     """
     class_to_github: dict = {}
+    abs_source = os.path.abspath(source_root)
+    repo_root = os.path.dirname(abs_source)
+
     for root, _dirs, files in os.walk(source_root):
         for fname in files:
             if not fname.endswith(".cs"):
                 continue
             fpath = os.path.join(root, fname)
-            github = f"{repo_url}/blob/{branch}/{fpath}"
+            rel_fpath = os.path.relpath(fpath, repo_root)
+            github = f"{repo_url}/blob/{branch}/{rel_fpath}"
             try:
                 with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
                     src = fh.read()
@@ -95,6 +93,122 @@ def fix_click_links_to_github(
             stem = fname.replace(".cs", "").lower()
             if stem not in class_to_github:
                 class_to_github[stem] = github
+    return class_to_github
+
+
+def fix_click_links_to_github(
+    content: str,
+    source_root: str,
+    repo_url: str,
+    branch: str = "main",
+    class_to_github: Optional[dict] = None,
+) -> str:
+    """Replace non-GitHub ``click`` URLs with GitHub source links and
+    append ``#Lxx`` line-number anchors for precise navigation.
+
+    Scans all Mermaid blocks for ``click`` and ``link`` directives.
+    For non-HTTP URLs, extracts the class name from the tooltip, looks
+    up the corresponding ``.cs`` file under *source_root*, and rewrites
+    the URL to a GitHub blob link.  For URLs already pointing to the
+    repository, appends or corrects the ``#Lxx`` fragment so clicking
+    a diagram node jumps directly to the relevant line of code.
+
+    Directives that cannot be mapped are commented out so they don't
+    produce broken links.
+
+    This function is idempotent and safe to call on every build.
+    """
+    if class_to_github is None:
+        class_to_github = build_class_map(source_root, repo_url, branch)
+
+    line_index: dict = {}  # (file_path, symbol_name) -> line_number
+    github_base = f"{repo_url}/blob/{branch}/"
+
+    abs_source = os.path.abspath(source_root)
+    repo_root = os.path.dirname(abs_source)
+
+    for root, _dirs, files in os.walk(source_root):
+        for fname in files:
+            if not fname.endswith(".cs"):
+                continue
+            fpath = os.path.join(root, fname)
+            rel_fpath = os.path.relpath(fpath, repo_root)
+
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
+                    src_lines = fh.readlines()
+            except OSError:
+                continue
+
+            for i, line in enumerate(src_lines, 1):
+                stripped = line.strip()
+                cm = re.match(
+                    r"(?:public\s+)?(?:abstract\s+)?(?:sealed\s+)?(?:partial\s+)?"
+                    r"(?:class|record|struct|interface)\s+(\w+)",
+                    stripped,
+                )
+                if cm:
+                    line_index[(rel_fpath, cm.group(1))] = i
+
+                cm = re.match(
+                    r"(?:public|protected|private|internal)\s+"
+                    r"(?:static\s+)?(?:async\s+)?(?:override\s+)?(?:virtual\s+)?"
+                    r"[\w<>\[\],\s]+?\s+(\w+)\s*\(",
+                    stripped,
+                )
+                if cm:
+                    mname = cm.group(1)
+                    if mname not in (
+                        "if", "for", "while", "switch", "catch",
+                        "using", "return", "throw", "new", "get", "set",
+                    ):
+                        line_index[(rel_fpath, mname)] = i
+
+                cm = re.match(
+                    r"(?:public|protected|private|internal)\s+"
+                    r"(\w+)\s*\(",
+                    stripped,
+                )
+                if cm and (rel_fpath, cm.group(1)) in line_index:
+                    line_index[(rel_fpath, f"{cm.group(1)}_ctor")] = i
+
+    def _find_line(file_path: str, tooltip: str) -> Optional[int]:
+        """Look up the source line for a tooltip label in *file_path*.
+
+        Tries, in order: exact method name (last part), then
+        intermediate property names (middle parts only, skipping the
+        first part which is typically the class name — matching it
+        would just land on the class declaration, not the property).
+        """
+        clean = tooltip.strip()
+        search_names: list = []
+        if " constructor" in clean:
+            cn = clean.replace(" constructor", "").replace(" (constructor)", "").split(".")[-1]
+            search_names = [f"{cn}_ctor", cn]
+        elif "." in clean:
+            parts = clean.split(".")
+            search_names = [parts[-1]]
+            if len(parts) >= 3:
+                for p in reversed(parts[1:-1]):
+                    search_names.append(p)
+        else:
+            search_names = [clean]
+        for name in search_names:
+            key = (file_path, name)
+            if key in line_index:
+                return line_index[key]
+        return None
+
+    def _append_line_anchor(github_url: str, tooltip: str) -> str:
+        """Append ``#Lxx`` to *github_url* if the symbol can be found."""
+        url_no_fragment = github_url.split("#")[0]
+        file_path = url_no_fragment.replace(github_base, "")
+        line_num = _find_line(file_path, tooltip)
+        if line_num is not None:
+            return f"{url_no_fragment}#L{line_num}"
+        if "#L" in github_url:
+            return url_no_fragment
+        return github_url
 
     _CLICK_URL_RE = re.compile(
         r'^(\s*click\s+\w+\s+href\s+)"([^"]+)"\s+"([^"]+)"\s*$',
@@ -105,18 +219,37 @@ def fix_click_links_to_github(
         re.MULTILINE,
     )
 
+    _NODE_LABEL_RE = re.compile(
+        r"\b(\w+)\s*\(\[\s*(.+?)\s*\]\)",
+    )
+
     def _fix_block(match: re.Match) -> str:
         prefix = match.group(1)
         body = match.group(2)
         suffix = match.group(3)
 
+        def _normalize_github_url(url: str) -> str:
+            """Strip embedded absolute local paths from a GitHub URL."""
+            m = re.search(r'/blob/[^/]+//', url)
+            if m:
+                idx = m.end()
+                abs_prefix = url[idx:]
+                prefix_match = re.match(r'.*/src/', abs_prefix)
+                if prefix_match:
+                    url = url[:m.end() - 1] + 'src/' + abs_prefix[prefix_match.end():]
+            return url
+
         def _rewrite_click(cm: re.Match) -> str:
             before, url, tooltip = cm.group(1), cm.group(2), cm.group(3)
             if url.startswith("http"):
-                return cm.group(0)
+                if url.startswith(github_base) or url.startswith(repo_url):
+                    url = _normalize_github_url(url)
+                    url = _append_line_anchor(url, tooltip)
+                return f'{before}"{url}" "{tooltip}"'
             cls = tooltip.replace(" constructor", "").split(".")[0].strip().lower()
             gh = class_to_github.get(cls)
             if gh:
+                gh = _append_line_anchor(gh, tooltip)
                 return f'{before}"{gh}" "{tooltip}"'
             return f"    %% Removed: no GitHub source for {tooltip}"
 
@@ -125,21 +258,83 @@ def fix_click_links_to_github(
                 cm.group(1), cm.group(2), cm.group(3), cm.group(4),
             )
             if url.startswith("http"):
-                return cm.group(0)
+                if url.startswith(github_base) or url.startswith(repo_url):
+                    url = _normalize_github_url(url)
+                    url = _append_line_anchor(url, tooltip)
+                return f'{before}"{url}" "{tooltip}"'
             cls = node_name.lower()
             gh = class_to_github.get(cls)
             if not gh:
                 cls = tooltip.replace("View ", "").replace(" source", "").replace(" documentation", "").split(".")[0].strip().lower()
                 gh = class_to_github.get(cls)
             if gh:
+                gh = _append_line_anchor(gh, tooltip)
                 return f'{before}"{gh}" "{tooltip}"'
             return f"    %% Removed: no GitHub source for {node_name}"
 
         body = _CLICK_URL_RE.sub(_rewrite_click, body)
         body = _LINK_URL_RE.sub(_rewrite_link, body)
+
+        first_line = body.strip().split("\n")[0].strip().lower()
+        is_flowchart = first_line.startswith("flowchart") or first_line.startswith("graph")
+        if is_flowchart:
+            existing_click_nodes: set = set()
+            for cm in re.finditer(r"^\s*click\s+(\w+)\s", body, re.MULTILINE):
+                existing_click_nodes.add(cm.group(1))
+
+            injected: list = []
+            for nm in _NODE_LABEL_RE.finditer(body):
+                node_id = nm.group(1)
+                label = nm.group(2).strip()
+                if node_id in existing_click_nodes:
+                    continue
+                clean_label = label.replace(" constructor", "").replace(" (constructor)", "")
+                cls_name = clean_label.split(".")[0].strip().lower()
+                gh = class_to_github.get(cls_name)
+                if not gh:
+                    cls_name = clean_label.split()[0].strip().lower()
+                    gh = class_to_github.get(cls_name)
+                if not gh:
+                    parts = clean_label.split(".")
+                    if len(parts) > 1:
+                        cls_name = parts[0].strip().lower()
+                        gh = class_to_github.get(cls_name)
+                if gh:
+                    gh = _append_line_anchor(gh, label)
+                    injected.append(
+                        f'    click {node_id} href "{gh}" "{label}"'
+                    )
+
+            if injected:
+                body = body.rstrip() + "\n" + "\n".join(injected) + "\n"
+
+        is_classdiagram = first_line.startswith("classdiagram")
+        if is_classdiagram:
+            existing_links: set = set()
+            for cm in re.finditer(r"^\s*link\s+(\w+)\s", body, re.MULTILINE):
+                existing_links.add(cm.group(1))
+
+            class_defs = re.findall(
+                r"^\s*class\s+(\w+)\s*[\{:]", body, re.MULTILINE
+            )
+            link_lines: list = []
+            for cname in class_defs:
+                if cname in existing_links:
+                    continue
+                gh = class_to_github.get(cname.lower())
+                if gh:
+                    gh = _append_line_anchor(gh, cname)
+                    link_lines.append(
+                        f'    link {cname} "{gh}" "View {cname} source"'
+                    )
+            if link_lines:
+                body = body.rstrip() + "\n" + "\n".join(link_lines) + "\n"
+
         return prefix + body + suffix
 
-    return _MERMAID_BLOCK_RE.sub(_fix_block, content)
+    result = _MERMAID_BLOCK_RE.sub(_fix_block, content)
+    result = _fix_inline_closing_fences(result)
+    return result
 
 
 def fix_mermaid_links_for_mkdocs(
@@ -526,6 +721,97 @@ def _fix_inline_closing_fences(content: str) -> str:
     the fence on its own line to recognise the code block.
     """
     return re.sub(r'^(.+[^`])```\s*$', r'\1\n```', content, flags=re.MULTILINE)
+
+
+def fix_table_formatting(content: str) -> str:
+    """Ensure markdown tables are preceded by a blank line.
+
+    Python-Markdown (used by MkDocs) requires a blank line before a
+    pipe table.  Without it, the table rows are rendered as inline text
+    in the preceding paragraph.  This function inserts the blank line
+    where it's missing.
+    """
+    lines = content.split("\n")
+    result: list = []
+    for i, line in enumerate(lines):
+        if i > 0 and re.match(r"^\|[\s\w]", line):
+            prev = lines[i - 1].strip()
+            if prev and not prev.startswith("|") and not prev.startswith("---"):
+                result.append("")
+        result.append(line)
+    return "\n".join(result)
+
+
+def fix_sequence_legends(content: str, class_to_github: dict) -> str:
+    """Reformat ``??? Sequence Diagram Legend`` blocks for MkDocs.
+
+    The LLM often generates legend content as unindented numbered lists::
+
+        ??? Sequence Diagram Legend
+        1. **Client** sends a request.
+        2. **OrdersApi** forwards the command.
+
+    ``pymdownx.details`` requires 4-space indentation for content inside
+    a ``???`` block.  This function converts unindented numbered items to
+    properly indented bullet lists and adds clickable GitHub links for
+    component names that exist in *class_to_github*.
+
+    Already-formatted blocks (4-space indented bullets) are left
+    untouched, making the function idempotent.
+    """
+    _LEGEND_HEADER = "??? Sequence Diagram Legend"
+    _NUM_RE = re.compile(
+        r"^(\d+)\.\s+(.+)$"
+    )
+    _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+    lines = content.split("\n")
+    result: list = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() == _LEGEND_HEADER:
+            result.append(line)
+            i += 1
+            if i < len(lines) and lines[i].startswith("    "):
+                continue
+            while i < len(lines):
+                raw = lines[i]
+                m = _NUM_RE.match(raw.strip())
+                if not m:
+                    if raw.strip() == "" or raw.strip().startswith("-"):
+                        break
+                    result.append(raw)
+                    i += 1
+                    continue
+                num, body = m.group(1), m.group(2)
+                bold_m = _BOLD_RE.search(body)
+                if not bold_m:
+                    result.append(f"    - **{num}.** {body}")
+                    i += 1
+                    continue
+                component = bold_m.group(1)
+                rest = body[bold_m.end():].lstrip(" ,.:-").strip()
+                clean_name = component.replace("The ", "").strip()
+                cls_key = clean_name.lower()
+                gh = class_to_github.get(cls_key)
+                if not gh:
+                    parts = clean_name.split()
+                    if parts:
+                        gh = class_to_github.get(parts[0].lower())
+                if gh:
+                    entry = (
+                        f"    - **{num}. {component}** -- "
+                        f"[{clean_name}]({gh}) -- {rest}"
+                    )
+                else:
+                    entry = f"    - **{num}. {component}** -- {rest}"
+                result.append(entry)
+                i += 1
+        else:
+            result.append(line)
+            i += 1
+    return "\n".join(result)
 
 
 def _strip_absolute_local_paths(content: str) -> str:

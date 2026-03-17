@@ -18,7 +18,12 @@ from typing import Dict, List, Tuple
 
 from ..config import ConfigLoader
 from .link_resolver import LinkResolver
-from .mermaid_sanitizer import fix_click_links_to_github
+from .mermaid_sanitizer import (
+    build_class_map,
+    fix_click_links_to_github,
+    fix_sequence_legends,
+    fix_table_formatting,
+)
 from .navigation import NavigationBuilder
 
 logger = logging.getLogger(__name__)
@@ -109,20 +114,28 @@ class DocumentAssembler:
         )
         generated = resolver.resolve_all()
 
-        # Ensure all Mermaid click directives point to GitHub source URLs.
+        # Build class map once for reuse by multiple post-processors.
         source_root = str(self.config.project_root / "src")
+        class_map = build_class_map(
+            source_root, self.config.repo_url, self.config.repo_branch,
+        )
+
+        # Ensure all Mermaid click directives point to GitHub source URLs.
         for rel_path in list(generated.keys()):
             generated[rel_path] = fix_click_links_to_github(
                 generated[rel_path],
                 source_root=source_root,
                 repo_url=self.config.repo_url,
                 branch=self.config.repo_branch,
+                class_to_github=class_map,
             )
 
-        # Second pass: resolve refs and write files.
+        # Second pass: resolve refs, fix legends/tables, and write files.
         written: List[Path] = []
         for rel_path, content in generated.items():
             content = self._resolve_refs(content, rel_path)
+            content = fix_sequence_legends(content, class_map)
+            content = fix_table_formatting(content)
             full_path = docs_dir / rel_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(content, encoding="utf-8")
