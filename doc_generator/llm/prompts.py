@@ -147,11 +147,12 @@ return type and what it represents, async behaviour, and any side effects
 flowchart LR
     A([ClassName.MethodName]) --> B([Dependency.Method])
     B --> C([Another.Method])
-    click A "{{source_url}}" "ClassName.MethodName"
-    click B "../RelatedPage.md#section" "Dependency.Method"
+    click A href "{{source_url}}" "ClassName.MethodName"
+    click B href "../RelatedPage.md#section" "Dependency.Method"
 ```
-IMPORTANT: Every call graph MUST include `click` directives for each node that has a
-known documentation page or source URL, so diagram nodes are clickable links.
+IMPORTANT: Every call graph MUST include `click` directives with the `href` keyword
+for each node that has a known documentation page or source URL, so diagram nodes
+are clickable links. The syntax MUST be: click NODEID href "URL" "tooltip"
 
 ??? Call Graph Legend
     - **ClassName.MethodName** - [link to section] -- explain what this step does and why
@@ -166,11 +167,6 @@ flowchart LR
     D1 -- No --> P2([Step 2])
     P2 --> E2([Return result])
 ```
-
-??? Usage Example
-    ```csharp
-    // brief usage snippet
-    ```
 
 ---
 
@@ -231,11 +227,11 @@ return type and what it represents, data retrieval logic, and exception scenario
 ```mermaid
 flowchart LR
     A([ClassName.Method]) --> B([Dependency.Method])
-    click A "{{source_url}}" "ClassName.Method"
-    click B "../RelatedPage.md#section" "Dependency.Method"
+    click A href "{{source_url}}" "ClassName.Method"
+    click B href "../RelatedPage.md#section" "Dependency.Method"
 ```
-IMPORTANT: Every call graph MUST include `click` directives for each node that has a
-known documentation page or source URL, so diagram nodes are clickable links.
+IMPORTANT: Every call graph MUST include `click` directives with the `href` keyword
+for each node. The syntax MUST be: click NODEID href "URL" "tooltip"
 
 ??? Call Graph Legend
     - links to related docs -- explain what each call does and why
@@ -364,12 +360,12 @@ For EACH significant public method in the controller/endpoint:
 flowchart LR
     A([EndpointClass.Method]) --> B([Service.Operation])
     B --> C([Repository.Persist])
-    click A "{{source_url}}" "EndpointClass.Method"
-    click B "../HandlerPage.md#section" "Service.Operation"
-    click C "../../Infrastructure/Repositories.md#section" "Repository.Persist"
+    click A href "{{source_url}}" "EndpointClass.Method"
+    click B href "../HandlerPage.md#section" "Service.Operation"
+    click C href "../../Infrastructure/Repositories.md#section" "Repository.Persist"
 ```
-IMPORTANT: Every call graph MUST include `click` directives for each node that has a
-known documentation page or source URL, so diagram nodes are clickable links.
+IMPORTANT: Every call graph MUST include `click` directives with the `href` keyword
+for each node. The syntax MUST be: click NODEID href "URL" "tooltip"
 
 ??? Call Graph Legend
     - **EndpointClass.Method** - [link to source] -- entry point, what it receives
@@ -599,7 +595,7 @@ Write at least 3-4 sentences.
 ```mermaid
 flowchart LR
     S([Start]) --> P1([Step]) --> E([Return])
-    click P1 "{{source_url}}" "Description"
+    click P1 href "{{source_url}}" "Description"
 ```
 
 ---
@@ -644,6 +640,8 @@ def overview_doc_prompt(
     """
     example_block = _wrap_example(template_example)
     controller_section = ""
+    capability_list = ""
+    component_links_instruction = ""
     if controller_pages:
         controller_section = f"""
 ## Generated Controller / Feature Pages (use these for internal links):
@@ -653,6 +651,42 @@ IMPORTANT: In Technical Implementation Details, link each capability to
 the appropriate generated page above using relative markdown links
 (e.g., [OrderCreation](./OrdersApi/OrderCreation.md)).
 """
+        feature_caps = []
+        component_caps = []
+        for line in controller_pages.strip().split("\n"):
+            line = line.strip()
+            if not line.startswith("- "):
+                continue
+            name_part = line.split(":")[0].replace("- ", "").strip()
+            rel_path = line.split(":")[-1].strip() if ":" in line else ""
+            parts = name_part.split(" > ")
+            cap_name = parts[-1].strip() if parts else name_part
+            cap_name = "".join(
+                " " + c if c.isupper() and i > 0 else c
+                for i, c in enumerate(cap_name)
+            ).strip()
+            if "/" in rel_path:
+                feature_caps.append(f"- ### {cap_name}  [FEATURE - include sequence diagram]")
+            else:
+                component_caps.append(f"- {cap_name}: [{cap_name}](./{rel_path})")
+        if feature_caps:
+            capability_list = (
+                "The Business Implementation section MUST contain ONLY these API endpoint features:\n"
+                + "\n".join(feature_caps)
+                + "\n\nYou MUST include a Mermaid sequence diagram for EACH of these "
+                "showing the end-to-end flow (Client -> API -> MediatR -> Handler -> Repository -> Database).\n"
+                "Do NOT include any supporting components (like Commands, Queries, Models, "
+                "Validations, Extensions, etc.) in the Business Implementation section."
+            )
+        if component_caps:
+            component_links_instruction = (
+                "\n\nIn the Technical Implementation Details section, AFTER the endpoint tables, "
+                "include a subsection:\n"
+                "### Supporting Component Documentation\n"
+                "With links to these component pages:\n"
+                + "\n".join(component_caps)
+                + "\n\nEach link should have a 1-sentence description of the component."
+            )
     return f"""Generate an overview documentation page for: {api_name}
 
 ## Output Structure:
@@ -666,38 +700,20 @@ the appropriate generated page above using relative markdown links
 - Key stakeholders and their concerns
 
 ## 2. Business Implementation Details
+This section MUST contain ONLY API endpoint features (actual HTTP request flows).
+Do NOT include supporting components like Commands, Queries, Models, Validations,
+Extensions, Domain Event Handling, or Integration Event Handlers here.
+{capability_list}
+
 Each business flow MUST be a proper ### heading (NOT a numbered list item).
-For example:
-
-### Order Creation
-- Step-by-step description of this business flow
-- Business rules that apply
-- Domain events raised
-
-### Order Cancellation
-- Step-by-step description ...
-
-Include a Sequence Diagram here showing the end-to-end system flow:
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant API
-    participant MediatR
-    participant Handler
-    participant Domain
-    participant Database
-
-    Client->>API: HTTP request
-    API->>MediatR: Send command/query
-    MediatR->>Handler: Route to handler
-    Handler->>Domain: Execute domain logic
-    Domain->>Database: Persist changes
-    Database-->>Client: Response
-```
-
-??? Sequence Diagram Legend
-    (numbered steps matching diagram with links and explanations)
+For each ### heading:
+- 2-3 sentence description of the business flow
+- A Mermaid sequence diagram specific to THIS capability showing the end-to-end
+  request flow (Client -> API -> MediatR -> Handler -> Repository -> Database).
+  Tailor the participant names and messages to match the actual capability
+  (e.g., for Order Cancellation, show CancelOrderCommand, not generic "command").
+- A ??? Sequence Diagram Legend with numbered steps
+- A "View detailed documentation" link to the feature page
 
 ## 3. Technical Implementation Details
 Group capabilities by controller/endpoint. Each capability group MUST be a ### heading.
@@ -720,6 +736,7 @@ event bus, etc.]. They implement [patterns used] to ensure [business goal].
 - [View detailed documentation: Feature B](./ControllerName/FeatureB.md)
 
 List ALL endpoints for each controller. Provide a SEPARATE clickable link per feature page.
+{component_links_instruction}
 
 ## 4. Validation and Error Handling
 ## 5. Security and Access Control

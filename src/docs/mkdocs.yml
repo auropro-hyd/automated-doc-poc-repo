@@ -3,7 +3,7 @@ plugins:
 - search
 - mermaid2:
     arguments:
-      securityLevel: sandbox
+      securityLevel: loose
 extra_css:
 - css/extra_css.css
 theme:
@@ -62,6 +62,7 @@ nav:
   - Extensions: Identity.API/Extensions.md
   - Models: Identity.API/Models.md
 - Ordering.API:
+  - Overview: ordering-api.md
   - Orders Api:
     - Order Cancellation: Ordering.API/OrdersApi/OrderCancellation.md
     - Order Card Types Management: Ordering.API/OrdersApi/OrderCardTypesManagement.md
@@ -80,7 +81,6 @@ nav:
   - Models: Ordering.Domain/Models.md
   - index: Ordering.Domain/index.md
 - Ordering.Infrastructure:
-  - Overview: ordering-api.md
   - Data Context: Ordering.Infrastructure/DataContext.md
   - Entity Configurations: Ordering.Infrastructure/EntityConfigurations.md
   - Extensions: Ordering.Infrastructure/Extensions.md

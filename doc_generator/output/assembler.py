@@ -18,6 +18,7 @@ from typing import Dict, List, Tuple
 
 from ..config import ConfigLoader
 from .link_resolver import LinkResolver
+from .mermaid_sanitizer import fix_click_links_to_github
 from .navigation import NavigationBuilder
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,16 @@ class DocumentAssembler:
             repo_url=self.config.repo_url,
         )
         generated = resolver.resolve_all()
+
+        # Ensure all Mermaid click directives point to GitHub source URLs.
+        source_root = str(self.config.project_root / "src")
+        for rel_path in list(generated.keys()):
+            generated[rel_path] = fix_click_links_to_github(
+                generated[rel_path],
+                source_root=source_root,
+                repo_url=self.config.repo_url,
+                branch=self.config.repo_branch,
+            )
 
         # Second pass: resolve refs and write files.
         written: List[Path] = []
