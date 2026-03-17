@@ -86,12 +86,16 @@ def fix_click_links_to_github(
     line_index: dict = {}  # (file_path, symbol_name) -> line_number
     github_base = f"{repo_url}/blob/{branch}/"
 
+    abs_source = os.path.abspath(source_root)
+    repo_root = os.path.dirname(abs_source)
+
     for root, _dirs, files in os.walk(source_root):
         for fname in files:
             if not fname.endswith(".cs"):
                 continue
             fpath = os.path.join(root, fname)
-            github = f"{repo_url}/blob/{branch}/{fpath}"
+            rel_fpath = os.path.relpath(fpath, repo_root)
+            github = f"{repo_url}/blob/{branch}/{rel_fpath}"
             try:
                 with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
                     src_lines = fh.readlines()
@@ -113,7 +117,7 @@ def fix_click_links_to_github(
                     stripped,
                 )
                 if cm:
-                    line_index[(fpath, cm.group(1))] = i
+                    line_index[(rel_fpath, cm.group(1))] = i
 
                 cm = re.match(
                     r"(?:public|protected|private|internal)\s+"
@@ -127,15 +131,15 @@ def fix_click_links_to_github(
                         "if", "for", "while", "switch", "catch",
                         "using", "return", "throw", "new", "get", "set",
                     ):
-                        line_index[(fpath, mname)] = i
+                        line_index[(rel_fpath, mname)] = i
 
                 cm = re.match(
                     r"(?:public|protected|private|internal)\s+"
                     r"(\w+)\s*\(",
                     stripped,
                 )
-                if cm and (fpath, cm.group(1)) in line_index:
-                    line_index[(fpath, f"{cm.group(1)}_ctor")] = i
+                if cm and (rel_fpath, cm.group(1)) in line_index:
+                    line_index[(rel_fpath, f"{cm.group(1)}_ctor")] = i
 
     def _find_line(file_path: str, tooltip: str) -> Optional[int]:
         """Look up the source line for a tooltip label in *file_path*.
@@ -184,15 +188,31 @@ def fix_click_links_to_github(
         re.MULTILINE,
     )
 
+    _NODE_LABEL_RE = re.compile(
+        r"\b(\w+)\s*\(\[\s*(.+?)\s*\]\)",
+    )
+
     def _fix_block(match: re.Match) -> str:
         prefix = match.group(1)
         body = match.group(2)
         suffix = match.group(3)
 
+        def _normalize_github_url(url: str) -> str:
+            """Strip embedded absolute local paths from a GitHub URL."""
+            m = re.search(r'/blob/[^/]+//', url)
+            if m:
+                idx = m.end()
+                abs_prefix = url[idx:]
+                prefix_match = re.match(r'.*/src/', abs_prefix)
+                if prefix_match:
+                    url = url[:m.end() - 1] + 'src/' + abs_prefix[prefix_match.end():]
+            return url
+
         def _rewrite_click(cm: re.Match) -> str:
             before, url, tooltip = cm.group(1), cm.group(2), cm.group(3)
             if url.startswith("http"):
                 if url.startswith(github_base) or url.startswith(repo_url):
+                    url = _normalize_github_url(url)
                     url = _append_line_anchor(url, tooltip)
                 return f'{before}"{url}" "{tooltip}"'
             cls = tooltip.replace(" constructor", "").split(".")[0].strip().lower()
@@ -208,6 +228,7 @@ def fix_click_links_to_github(
             )
             if url.startswith("http"):
                 if url.startswith(github_base) or url.startswith(repo_url):
+                    url = _normalize_github_url(url)
                     url = _append_line_anchor(url, tooltip)
                 return f'{before}"{url}" "{tooltip}"'
             cls = node_name.lower()
@@ -222,9 +243,41 @@ def fix_click_links_to_github(
 
         body = _CLICK_URL_RE.sub(_rewrite_click, body)
         body = _LINK_URL_RE.sub(_rewrite_link, body)
+
+        first_line = body.strip().split("\n")[0].strip().lower()
+        is_flowchart = first_line.startswith("flowchart") or first_line.startswith("graph")
+        if is_flowchart:
+            existing_click_nodes: set = set()
+            for cm in re.finditer(r"^\s*click\s+(\w+)\s", body, re.MULTILINE):
+                existing_click_nodes.add(cm.group(1))
+
+            injected: list = []
+            for nm in _NODE_LABEL_RE.finditer(body):
+                node_id = nm.group(1)
+                label = nm.group(2).strip()
+                if node_id in existing_click_nodes:
+                    continue
+                cls_name = label.split(".")[0].strip().lower()
+                gh = class_to_github.get(cls_name)
+                if not gh:
+                    parts = label.split(".")
+                    if len(parts) > 1:
+                        cls_name = parts[0].strip().lower()
+                        gh = class_to_github.get(cls_name)
+                if gh:
+                    gh = _append_line_anchor(gh, label)
+                    injected.append(
+                        f'    click {node_id} href "{gh}" "{label}"'
+                    )
+
+            if injected:
+                body = body.rstrip() + "\n" + "\n".join(injected) + "\n"
+
         return prefix + body + suffix
 
-    return _MERMAID_BLOCK_RE.sub(_fix_block, content)
+    result = _MERMAID_BLOCK_RE.sub(_fix_block, content)
+    result = _fix_inline_closing_fences(result)
+    return result
 
 
 def fix_mermaid_links_for_mkdocs(
