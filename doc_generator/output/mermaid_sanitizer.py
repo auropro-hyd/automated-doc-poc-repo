@@ -743,26 +743,25 @@ def fix_table_formatting(content: str) -> str:
 
 
 def fix_sequence_legends(content: str, class_to_github: dict) -> str:
-    """Reformat ``??? Sequence Diagram Legend`` blocks for MkDocs.
+    """Reformat Sequence Diagram Legend blocks for MkDocs collapsible sections.
 
-    The LLM often generates legend content as unindented numbered lists::
+    LLMs produce legend headers in varying formats -- sometimes the correct
+    ``??? Sequence Diagram Legend`` admonition syntax, but more often a plain
+    Markdown heading like ``#### Sequence Diagram Legend``.  This function
+    normalises **all** variants to ``???+ "Sequence Diagram Legend"``
+    (initially expanded) with properly 4-space-indented content, which
+    ``pymdownx.details`` renders as a collapsible section.
 
-        ??? Sequence Diagram Legend
-        1. **Client** sends a request.
-        2. **OrdersApi** forwards the command.
-
-    ``pymdownx.details`` requires 4-space indentation for content inside
-    a ``???`` block.  This function converts unindented numbered items to
-    properly indented bullet lists and adds clickable GitHub links for
-    component names that exist in *class_to_github*.
-
-    Already-formatted blocks (4-space indented bullets) are left
-    untouched, making the function idempotent.
+    Already-formatted blocks (``???`` header with 4-space indented bullets)
+    are left untouched, making the function idempotent.
     """
-    _LEGEND_HEADER = "??? Sequence Diagram Legend"
-    _NUM_RE = re.compile(
-        r"^(\d+)\.\s+(.+)$"
+    _ADMONITION_HEADER = re.compile(
+        r"^\s*\?{3}\+?\s+\"?Sequence Diagram Legend\"?\s*$"
     )
+    _HEADING_HEADER = re.compile(
+        r"^\s*#{2,5}\s+Sequence Diagram Legend\s*$"
+    )
+    _NUM_RE = re.compile(r"^(\d+)\.\s+(.+)$")
     _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 
     lines = content.split("\n")
@@ -770,8 +769,11 @@ def fix_sequence_legends(content: str, class_to_github: dict) -> str:
     i = 0
     while i < len(lines):
         line = lines[i]
-        if line.strip() == _LEGEND_HEADER:
-            result.append(line)
+        is_admonition = _ADMONITION_HEADER.match(line)
+        is_heading = _HEADING_HEADER.match(line)
+
+        if is_admonition or is_heading:
+            result.append('???+ "Sequence Diagram Legend"')
             i += 1
             if i < len(lines) and lines[i].startswith("    "):
                 continue
@@ -779,7 +781,9 @@ def fix_sequence_legends(content: str, class_to_github: dict) -> str:
                 raw = lines[i]
                 m = _NUM_RE.match(raw.strip())
                 if not m:
-                    if raw.strip() == "" or raw.strip().startswith("-"):
+                    if raw.strip() == "" or raw.strip().startswith("["):
+                        break
+                    if raw.strip().startswith("-"):
                         break
                     result.append(raw)
                     i += 1
