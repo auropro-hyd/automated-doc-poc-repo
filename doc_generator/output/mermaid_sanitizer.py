@@ -260,7 +260,15 @@ def fix_click_links_to_github(
             if url.startswith("http"):
                 if url.startswith(github_base) or url.startswith(repo_url):
                     url = _normalize_github_url(url)
-                    url = _append_line_anchor(url, tooltip)
+                    rel_path = url.split(github_base)[-1].split("#")[0]
+                    local_file = os.path.join(repo_root, rel_path)
+                    if os.path.isfile(local_file):
+                        url = _append_line_anchor(url, tooltip)
+                        return f'{before}"{url}" "{tooltip}"'
+                    gh = class_to_github.get(node_name.lower())
+                    if gh:
+                        gh = _append_line_anchor(gh, tooltip)
+                        return f'{before}"{gh}" "{tooltip}"'
                 return f'{before}"{url}" "{tooltip}"'
             cls = node_name.lower()
             gh = class_to_github.get(cls)
